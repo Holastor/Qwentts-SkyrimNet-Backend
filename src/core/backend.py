@@ -85,13 +85,6 @@ class PersistentQwenTTSBackend:
         ref_audio_path = Path(voice_ref["ref_audio"])
         ref_text       = voice_ref["ref_text"]
 
-        if not ref_audio_path.exists():
-            _log(f"ERROR: ref_audio not found: {ref_audio_path}")
-            return None
-        if not ref_text.strip():
-            _log("ERROR: ref_text is empty")
-            return None
-
         output_path.parent.mkdir(parents=True, exist_ok=True)
         if output_path.exists():
             output_path.unlink(missing_ok=True)
@@ -125,7 +118,7 @@ class PersistentQwenTTSBackend:
         params.codec_left_context_sec = config.CODEC_LEFT_CONTEXT_SEC
 
         # Try ABI v2 cached path first.
-        vc = _ensure_voice_cache(voice_ref["ref_audio"], lang)
+        vc = _ensure_voice_cache(voice_ref["ref_audio"], lang, fallback_ref_text=ref_text)
         if vc is not None and vc.ref_text is not None:
             _log("using cached voice (spk + rvq, ABI v2)")
             params.ref_spk_emb = ctypes.cast(vc.spk_array, POINTER(c_float))
@@ -136,6 +129,13 @@ class PersistentQwenTTSBackend:
         else:
             # Fall back to raw audio path (ABI v1 compatible).
             _log("using raw audio path (no voice cache)")
+            if not ref_audio_path.exists():
+                _log(f"ERROR: ref_audio not found: {ref_audio_path}")
+                return None
+            if not ref_text.strip():
+                _log("ERROR: ref_text is empty")
+                return None
+
             try:
                 ref_floats, ref_n = _read_wav_mono_24k(str(ref_audio_path))
             except Exception as exc:
@@ -189,6 +189,35 @@ class PersistentQwenTTSBackend:
             err  = qt_last_error()
             msg  = err.decode() if err else ""
             _log(f"ERROR: qt_synthesize returned {name}: {msg}")
+
+            if status == QT_STATUS_INVALID_PARAMS and "ref_spk_dim" in msg and "mismatches" in msg:
+                _log("WARNING: Detected speaker embedding dimension mismatch in voice cache!")
+                lang_code = config._get_lang_code(lang)
+                cache_key = f"{lang_code}:{str(ref_audio_path.resolve())}"
+
+                from src.services.cache import _VOICE_CACHE, RVQ_CACHE_DIR
+                if cache_key in _VOICE_CACHE:
+                    del _VOICE_CACHE[cache_key]
+
+                stem = ref_audio_path.stem
+                lang_cache_dir = RVQ_CACHE_DIR / lang_code
+                rvq_path = lang_cache_dir / f"{stem}.rvq"
+                spk_path = lang_cache_dir / f"{stem}.spk"
+
+                try:
+                    rvq_path.unlink(missing_ok=True)
+                    spk_path.unlink(missing_ok=True)
+                    _log(f"Deleted invalid cache files: {rvq_path.name}, {spk_path.name}")
+                except Exception as exc:
+                    _log(f"WARNING: failed to delete invalid cache files: {exc}")
+
+                if ref_audio_path.exists():
+                    _log("ref_audio WAV exists. Re-encoding and retrying synthesis...")
+                    self._ref_buf = None
+                    return self.infer(voice_ref, gen_text, output_path, speaker_wav, lang)
+                else:
+                    _log("ERROR: ref_audio WAV does not exist, cannot re-encode. Please re-import this voice sample to generate a compatible cache.")
+
             self._ref_buf = None
             return None
 
@@ -281,3 +310,32 @@ def _switch_backend(backend_name: str) -> Dict[str, Any]:
     config._SETTINGS["backend"] = backend_name
     config._save_settings()
     return {"success": True, "backend": backend_name}
+
+
+def _reload_model() -> Dict[str, Any]:
+    """Re-initialize the PERSISTENT_BACKEND with current config settings."""
+    global PERSISTENT_BACKEND
+    old_backend = PERSISTENT_BACKEND
+    PERSISTENT_BACKEND = None
+    if old_backend is not None:
+        try:
+            ctx = old_backend._ctx
+            if ctx is not None:
+                old_backend._ctx = None
+                qt_free(ctx)
+                _log("previous model context freed via qt_free")
+        except Exception as exc:
+            _log(f"WARNING: cleanup of previous backend failed: {exc}")
+    del old_backend
+
+    try:
+        new_backend = PersistentQwenTTSBackend(
+            config.TALKER_PATH, config.CODEC_PATH,
+            use_fa=config.USE_FA, clamp_fp16=config.CLAMP_FP16,
+        )
+        PERSISTENT_BACKEND = new_backend
+        _log("persistent backend successfully re-initialized with updated settings/paths")
+        return {"success": True}
+    except Exception as exc:
+        _log(f"ERROR: persistent backend re-initialization failed: {exc}")
+        return {"success": False, "error": str(exc)}

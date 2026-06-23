@@ -350,6 +350,12 @@ async def settings_api_update(request: Request) -> Dict[str, Any]:
     _SETTINGS.update(data)
     _save_settings()
     _apply_settings()
+
+    from src.core.backend import _reload_model
+    reload_res = _reload_model()
+    if not reload_res["success"]:
+        raise HTTPException(status_code=500, detail=f"Model reload failed: {reload_res.get('error')}")
+
     return {"success": True, "settings": dict(_SETTINGS)}
 
 
@@ -450,6 +456,12 @@ async def models_api_select(request: Request) -> Dict[str, Any]:
 
     _save_settings()
     _apply_settings()
+
+    from src.core.backend import _reload_model
+    reload_res = _reload_model()
+    if not reload_res["success"]:
+        raise HTTPException(status_code=500, detail=f"Model reload failed: {reload_res.get('error')}")
+
     return {"success": True, "kind": kind, "name": name, "path": model_path}
 
 
