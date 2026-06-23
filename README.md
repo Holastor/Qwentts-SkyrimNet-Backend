@@ -21,10 +21,24 @@ The adapter emulates the standard SkyrimNet API (`/tts_to_audio/`, `/health`, `/
 
 ---
 
+## Installation & Build Modes
+
+You can set up the adapter in two ways depending on whether you want a ready-to-run setup or a custom build:
+
+* **Pre-built Release (Recommended)**: Download the latest archive from the [Releases]() tab. It already contains the pre-compiled `qwen.dll`, computational backend DLLs (`ggml-cuda.dll`, `ggml-vulkan.dll`), and standalone utility executables inside the `bin/` directory.
+* **Build from Source (Advanced)**: If you want to compile the core engine manually, this repository includes `qwentts.cpp` as a Git submodule. You can pull the submodule and compile the binaries directly on your machine using CMake and your preferred compiler (MSVC/GCC).
+
+---
+
 ## Quick Start
 
-1. **Unpack & Prepare**: Place the `QwenTTS` folder into your working directory.
-2. **Environment Setup**: Run the `Setup_QwenTTS_Adapter.bat` file. It will create a local `.venv` virtual environment and install all required dependencies.
+1. **Unpack & Clone**: 
+   * If using a pre-built release, simply extract the `QwenTTS` folder into your working directory.
+   * If building from source, clone this repository recursively to fetch the submodule:
+     ```bash
+     git clone --recursive [https://github.com/Holastor/Qwentts-SkyrimNet-Backend.git](https://github.com/Holastor/Qwentts-SkyrimNet-Backend.git)
+     ```
+2. **Environment Setup**: Run the `Setup_QwenTTS_Adapter.bat` file. It will create a local `.venv` virtual environment and install all required Python dependencies.
    > [!NOTE]
    > The script will complete successfully even if the model files are missing. You can download them later via the dashboard.
 3. **Launch the Server**: Run `Start_QwenTTS_Persistent.bat`. The server will boot up and automatically open the settings dashboard in your default browser.
