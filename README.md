@@ -1,90 +1,92 @@
-# Адаптер QwenTTS для SkyrimNet
+# QwenTTS Adapter for SkyrimNet
 
-Этот проект реализует интеграцию локального быстрого движка синтеза речи **QwenTTS** (на базе [qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp)) в качестве бэкенда для SkyrimNet.
+This project implements the integration of the local, high-performance **QwenTTS** speech synthesis engine (powered by [qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp)) as a backend for SkyrimNet.
 
-Адаптер эмулирует стандартное API SkyrimNet (`/tts_to_audio/`, `/health`, `/create_and_store_latents`), обеспечивая бесшовную работу клиента.
-
----
-
-## Основные особенности движка
-
-* **Локальный и быстрый**: Написан на C++17 (GGML), работает полностью на CPU (или GPU через CUDA/Vulkan) без тяжелых зависимостей (PyTorch/Transformers).
-* **Клонирование голоса (ICL)**: Поддерживает быстрое клонирование голоса по короткому эталону WAV (3–7 секунд) и тексту реплики.
-* **Автономность**: Не требует подключения к интернету после скачивания моделей.
+The adapter emulates the standard SkyrimNet API (`/tts_to_audio/`, `/health`, `/create_and_store_latents`), ensuring seamless client operation.
 
 ---
 
-## Быстрый старт
+## Key Engine Features
 
-1. **Распаковка и подготовка**: Поместите папку `QwenTTS` в рабочую среду.
-2. **Установка окружения**: Запустите файл `Setup_QwenTTS_Adapter.bat`. Он создаст виртуальное окружение `.venv` и установит необходимые библиотеки.
+* **Local & Fast**: Written in C++17 (GGML), runs entirely on CPU (or GPU via CUDA/Vulkan) without heavy dependencies like PyTorch or Transformers.
+* **Voice Cloning (ICL)**: Supports instant voice cloning using a short reference WAV sample (3–7 seconds) and its corresponding transcript.
+* **Standalone / Offline**: Requires no internet connection once the models are downloaded.
+
+---
+
+## Quick Start
+
+1. **Unpack & Prepare**: Place the `QwenTTS` folder into your working directory.
+2. **Environment Setup**: Run the `Setup_QwenTTS_Adapter.bat` file. It will create a local `.venv` virtual environment and install all required dependencies.
    > [!NOTE]
-   > Скрипт успешно завершится, даже если файлы моделей отсутствуют. Вы сможете скачать их позже через дашборд.
-3. **Запуск сервера**: Запустите `Start_QwenTTS_Persistent.bat`. Сервер запустится и автоматически откроет веб-интерфейс настроек в вашем браузере.
-4. **Настройка SkyrimNet**: В клиенте SkyrimNet укажите адрес TTS сервера:
+   > The script will complete successfully even if the model files are missing. You can download them later via the dashboard.
+3. **Launch the Server**: Run `Start_QwenTTS_Persistent.bat`. The server will boot up and automatically open the settings dashboard in your default browser.
+4. **Configure SkyrimNet**: In your SkyrimNet client settings, specify the following TTS server URL:
    ```
    http://127.0.0.1:7861
    ```
 
 ---
 
-## Панель управления (Dashboard)
+## Control Panel (Dashboard)
 
-Адрес панели управления: **[http://127.0.0.1:7861/settings](http://127.0.0.1:7861/settings)**
+Dashboard URL: **[http://127.0.0.1:7861/settings](http://127.0.0.1:7861/settings)**
 
-### 1. Вкладка «Настройки и Модели» (Settings & Models)
-* **Backend**: Выбор вычислительного ядра (`CPU`, `CUDA` для карт NVIDIA или `Vulkan` для AMD/интегрированных карт).
-* **Параметры генерации**: Регулировка Temperature (выразительность голоса), Repetition Penalty, Seed (зерно генерации) и др.
-* **Управление моделями**:
-  * Если папка `models/qwen/` пуста, вы можете **скачать модели напрямую из HuggingFace** в один клик в блоке "Download from HuggingFace".
-  * Выберите активную языковую модель (`Talker LM`) и аудиокодек (`Audio Codec`) и нажмите **Apply Models** для перезагрузки бэкенда.
+### 1. "Settings & Models" Tab
+* **Backend**: Select the compute core (`CPU`, `CUDA` for NVIDIA graphics cards, or `Vulkan` for AMD/integrated GPUs).
+* **Generation Parameters**: Tweak Temperature (voice expressiveness), Repetition Penalty, Seed (generation seed), and other sampling settings.
+* **Model Management**:
+* If the `models/qwen/` folder is empty, you can **download models directly from HuggingFace** with a single click in the "Download from HuggingFace" section.
+* Select the active language model (`Talker LM`) and audio codec (`Audio Codec`), then click **Apply Models** to reload the backend.
 
-### 2. Вкладка «Менеджер голосов» (Voices Manager)
-* **Импорт из SkyrimNet**: Синхронизируйте и автоматически скачайте эталоны голосов из запущенного сервера SkyrimNet.
-  > [!IMPORTANT]
-  > Процесс импорта показывает наглядный **прогресс-бар, процент выполнения, количество обработанных голосов и время до конца**. Перед импортом убедитесь, что в параметрах синтеза выбран правильный язык (например, `russian`), чтобы эталоны разложились по нужным папкам!
-* **Ручное управление**: Добавление, редактирование, прослушивание (встроенный аудиоплеер внизу) и удаление голосов NPC из базы данных `voice_refs_<lang>.json`.
+### 2. "Voices Manager" Tab
+* **Import from SkyrimNet**: Sync and automatically download reference voice samples from a running SkyrimNet server.
+> [!IMPORTANT]
+> The import process displays a clear **progress bar, completion percentage, total processed voices, and estimated time remaining**. Before starting the import, make sure the correct language (e.g., `russian`) is selected in the synthesis parameters so the reference files are sorted into the proper directories!
+* **Manual Management**: Add, edit, listen to (via the built-in audio player at the bottom), or delete NPC voices from the `voice_refs_<lang>.json` database.
 
 ---
 
-## Структура проекта
+## Project Structure
 
 ```
 QwenTTS/
-├── qwentts_adapter_server.py     # Точка входа для запуска
-├── Start_QwenTTS_Persistent.bat  # Скрипт запуска сервера
-├── Setup_QwenTTS_Adapter.bat     # Скрипт настройки окружения
-├── Check_QwenTTS_Adapter.bat     # Скрипт диагностики
-├── requirements_qwentts_adapter.txt # Зависимости Python
-├── bin/                          # Библиотека qwen.dll и зависимые DLL (GGML)
-├── models/qwen/                  # Папка для GGUF-моделей
-├── Voices/                       # Голосовые данные
-│   ├── qwen_speakers/            # Эталонные WAV-файлы (по языкам, например ru_RU)
-│   ├── runtime_speakers/         # Загружаемые эталоны во время игры
-│   ├── cached_voices/            # Предварительно закодированный кэш RVQ
-│   └── voice_refs/               # Базы данных голосов (voice_refs_ru_RU.json и др.)
-├── src/                          # Исходный код адаптера
-│   ├── api/                      # Эндпоинты (FastAPI)
-│   ├── core/                     # Ctypes-обертка для qwen.dll и бэкенд
-│   ├── services/                 # Синтез, кэширование, импорт голосов
-│   └── web/                      # Дашборд (settings.html, settings.css, settings.js)
-└── output_temp/                  # Временные генерируемые WAV и логи диагностики
+├── qwentts_adapter_server.py     # Application entry point
+├── Start_QwenTTS_Persistent.bat  # Server startup script
+├── Setup_QwenTTS_Adapter.bat     # Environment setup script
+├── Check_QwenTTS_Adapter.bat     # Diagnostics script
+├── requirements_qwentts_adapter.txt # Python dependencies
+├── bin/                          # qwen.dll and dependency DLLs (GGML)
+├── models/qwen/                  # Directory for GGUF models
+├── Voices/                       # Voice asset data
+│   ├── qwen_speakers/            # Reference WAV files (split by locale, e.g., ru_RU)
+│   ├── runtime_speakers/         # Reference samples uploaded during gameplay
+│   ├── cached_voices/            # Pre-encoded RVQ token cache
+│   └── voice_refs/               # Voice mapping databases (voice_refs_ru_RU.json, etc.)
+├── src/                          # Adapter source code
+│   ├── api/                      # Endpoints (FastAPI)
+│   ├── core/                     # Ctypes wrapper for qwen.dll and backend management
+│   ├── services/                 # Synthesis, caching, and voice import services
+│   └── web/                      # Dashboard frontend (settings.html, settings.css, settings.js)
+└── output_temp/                  # Temporary generated WAVs and diagnostics logs
 ```
 
 ---
 
-## Требования к эталонам (ICL Mode)
+---
 
-Для качественного клонирования голоса QwenTTS требует:
-1. **Качественный эталонный WAV** (желательно моно, 24 кГц, длительностью **3–7 секунд**).
-2. **Точный транскрипт** (параметр `ref_text`). Если текст не совпадает с тем, что сказано на записи, качество синтеза резко падает.
+## Reference Sample Requirements (ICL Mode)
+
+For high-fidelity voice cloning, QwenTTS requires:
+1. **A high-quality reference WAV file** (preferably mono, 24 kHz, **3–7 seconds** in duration).
+2. **An exact transcript** (`ref_text` parameter). If the text does not perfectly match the spoken words in the audio sample, synthesis quality will drop drastically.
 
 ---
 
-## Диагностика и лог-файлы
+## Diagnostics & Log Files
 
-В случае подозрительного поведения или ошибок проверяйте лог-файлы:
-* Логи синтеза пишутся в стандартный вывод консоли.
-* Временные сгенерированные файлы сохраняются в `output_temp/qwentts_generated/`.
-* При ошибках генерации отладочная информация сохраняется в `output_temp/qwentts_debug_failed/`.
-* Текст, переданный в модель, сохраняется в `output_temp/qwentts_debug_text/`.
+If you encounter unexpected behavior or errors, check the following log targets:
+* Synthesis logs are written directly to the standard console output.
+* Temporary generated audio files are saved to `output_temp/qwentts_generated/`.
+* Debug info for failed generations is stored in `output_temp/qwentts_debug_failed/`.
+* Raw processed text passed to the model is backed up in `output_temp/qwentts_debug_text/`.
