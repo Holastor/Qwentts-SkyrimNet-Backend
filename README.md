@@ -1,5 +1,12 @@
 # QwenTTS Adapter for SkyrimNet
 
+<p align="left">
+  <a href="README.md">English</a> •
+  <a href="README_ru.md">Русский</a>
+</p>
+
+---
+
 This project implements the integration of the local, high-performance **QwenTTS** speech synthesis engine (powered by [qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp)) as a backend for SkyrimNet.
 
 The adapter emulates the standard SkyrimNet API (`/tts_to_audio/`, `/health`, `/create_and_store_latents`), ensuring seamless client operation.
