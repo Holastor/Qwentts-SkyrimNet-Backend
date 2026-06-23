@@ -1,0 +1,3 @@
+[submodule "qwentts.cpp"]
+	path = qwentts.cpp
+	url = https://github.com/ServeurpersoCom/qwentts.cpp
