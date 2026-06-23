@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QwenTTS Settings</title>
+<link rel="stylesheet" href="/settings.css">
+</head>
+<body>
+
+<aside>
+  <div class="sidebar-header">
+    <span>QwenTTS Dashboard</span>
+  </div>
+  <nav class="tabs-nav">
+    <button class="tab-btn active" id="btn-settings" onclick="switchTab('settings')">⚙️ <span data-i18n="tab_settings">Settings & Models</span></button>
+    <button class="tab-btn" id="btn-voices" onclick="switchTab('voices')">👥 <span data-i18n="tab_voices">Voices Manager</span></button>
+  </nav>
+  <div class="sidebar-footer">
+    <select id="lang-select" onchange="changeSiteLang(this.value)" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-input); color: #fff; cursor: pointer; width: 100%;">
+      <option value="ru">RU 🇷🇺</option>
+      <option value="en">EN 🇬🇧</option>
+    </select>
+    <button onclick="startTutorial()" style="width: 100%; font-size: 12px; padding: 8px 12px;" data-i18n="btn_guide">🎓 Интерактивное руководство</button>
+  </div>
+</aside>
+
+<main>
+  <div class="page-header">
+    <h1 id="page-title-text" data-i18n="title">⚙️ Настройки QwenTTS</h1>
+  </div>
+
+  <div id="tab-settings" class="tab-content active-content">
+    
+    <div class="section" id="section-backend">
+      <h2 data-i18n="section_backend_title">Backend</h2>
+      <p class="section-desc" data-i18n="section_backend_desc">Select the compute backend. Switching requires a model reload (5–30 s).</p>
+      <form id="backend-form">
+        <div class="backend-grid">{{backend_rows}}</div>
+        <div style="margin-top: 16px;">
+          <button type="submit" data-i18n="btn_apply_backend">Apply Backend</button>
+        </div>
+      </form>
+      <div id="backend-message" class="message"></div>
+    </div>
+
+    <div class="section" id="section-params">
+      <h2 data-i18n="section_params_title">Synthesis Parameters</h2>
+      <p class="section-desc" data-i18n="section_params_desc">Core sampling settings that control voice output quality and behaviour.</p>
+      <form id="settings-form">
+        {{form_html}}
+        {{bool_html}}
+
+        <div class="collapsible-toggle" id="subtalker-toggle">
+          <span class="arrow">▶</span> <span data-i18n="subtalker_collapsible">Advanced: Code Predictor (Sub-Talker) Parameters</span>
+        </div>
+        <div class="collapsible-content" id="subtalker-content">
+          {{sub_html}}
+        </div>
+
+        <div style="margin-top: 24px;">
+          <button type="submit" data-i18n="btn_save_settings">Save Settings</button>
+        </div>
+      </form>
+      <div id="settings-message" class="message"></div>
+    </div>
+
+    <div class="section" id="section-models">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2 style="margin:0;" data-i18n="section_models_title">Models</h2>
+        <button class="refresh-btn" onclick="location.reload()"><span data-i18n="btn_refresh">↻ Refresh</span></button>
+      </div>
+
+      <h3 data-i18n="talker_lm_title">Talker LM</h3>
+      <p class="section-desc" data-i18n="talker_lm_desc">The language model that generates speech tokens. Select the active model and click <strong>Apply Models</strong>.</p>
+      <div class="model-group" id="talker-list">
+        {{talker_html}}
+      </div>
+
+      <h3 data-i18n="audio_codec_title">Audio Codec</h3>
+      <p class="section-desc" data-i18n="audio_codec_desc">The tokenizer that converts audio codes to waveform. Must match the talker's expected codec.</p>
+      <div class="model-group" id="codec-list">
+        {{codec_html}}
+      </div>
+
+      <div style="display: flex; gap: 16px; align-items: center; margin-top: 24px;">
+        <button id="apply-models-btn" data-i18n="btn_apply_models">Apply Models</button>
+        <span style="font-size:13px; color:var(--text-muted);" data-i18n="requires_reload_hint">Requires backend reload (5–30 s)</span>
+      </div>
+      <div id="model-message" class="message"></div>
+
+      <h3 data-i18n="download_hf_title">Download from HuggingFace</h3>
+      <p class="section-desc" data-i18n="download_hf_desc">Download additional models from HuggingFace.</p>
+      <div id="hf-models">Loading...</div>
+      <div id="download-message" class="message"></div>
+    </div>
+  </div>
+
+  <div id="tab-voices" class="tab-content">
+    
+    <div class="section" id="section-import">
+      <h2 data-i18n="import_skyrimnet_title">Import Voices from SkyrimNet</h2>
+      <p class="section-desc" data-i18n="import_skyrimnet_desc">Scan a running SkyrimNet server to automatically download reference voice WAVs.</p>
+      <form id="import-form" onsubmit="startImport(event)">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 16px;">
+          <div>
+            <label for="import-url" style="display:block; margin-bottom:8px; font-size:14px;" data-i18n="import_url_label">SkyrimNet URL:</label>
+            <input type="text" id="import-url" value="http://127.0.0.1:8080">
+          </div>
+          <div>
+            <label for="import-mode" style="display:block; margin-bottom:8px; font-size:14px;" data-i18n="import_mode_label">Selection Mode:</label>
+            <select id="import-mode">
+              <option value="qwentts-safe">qwentts-safe (Short neutral samples)</option>
+              <option value="longest">longest (Longest duration samples)</option>
+            </select>
+          </div>
+        </div>
+        <div style="display: flex; gap: 24px; margin: 20px 0; flex-wrap: wrap; font-size:14px;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="import-preserve" checked style="accent-color: var(--accent);"> <span data-i18n="import_preserve_label">Preserve existing refs</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="import-force" style="accent-color: var(--accent);"> <span data-i18n="import_force_label">Force overwrite files</span>
+          </label>
+        </div>
+        <button type="submit" data-i18n="btn_start_import">Start Sync / Import</button>
+      </form>
+      <!-- Progress Bar Container -->
+      <div id="import-progress-container" style="display: none; margin-top: 20px; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; font-weight: 500;">
+          <span id="import-progress-status" style="color: var(--accent);">Processing...</span>
+          <span id="import-progress-percentage" style="font-family: monospace; font-weight: bold; color: var(--accent);">0%</span>
+        </div>
+        <div style="width: 100%; height: 12px; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; position: relative; margin: 8px 0;">
+          <div id="import-progress-bar" style="width: 0%; height: 100%; background: var(--accent); transition: width 0.3s ease;"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--text-muted); font-family: monospace;">
+          <span id="import-progress-counts">Processed: 0 / 0</span>
+          <span id="import-progress-remaining">Remaining: 0</span>
+        </div>
+      </div>
+      <div id="import-console" class="import-console" style="display: none;"></div>
+    </div>
+
+    <div class="section" id="section-manual">
+      <h2 data-i18n="add_voice_title">Add New Voice Reference Manually</h2>
+      <p class="section-desc" data-i18n="add_voice_desc">Create a new voice reference manually. The WAV file must be placed in your speakers folder.</p>
+      <form id="add-voice-form" onsubmit="addVoice(event)">
+        <div class="field">
+          <label for="new-voice-key"><span data-i18n="new_voice_key_label">Speaker Name / Key:</span> <span class="tooltip-icon" data-i18n-tip="voice_key_tip" data-tip="Unique ID">ⓘ</span></label>
+          <div class="field-input-wrap" style="max-width: none;"><input type="text" id="new-voice-key" required></div>
+        </div>
+        <div class="field">
+          <label for="new-voice-audio"><span data-i18n="new_voice_audio_label">Ref WAV Path:</span> <span class="tooltip-icon" data-i18n-tip="voice_audio_tip" data-tip="Relative path">ⓘ</span></label>
+          <div class="field-input-wrap" style="max-width: none;"><input type="text" id="new-voice-audio" required></div>
+        </div>
+        <div class="field" style="align-items: flex-start;">
+          <label for="new-voice-text" style="padding-top: 8px;"><span data-i18n="new_voice_text_label">Ref Transcript:</span> <span class="tooltip-icon" data-i18n-tip="voice_text_tip" data-tip="Exact text">ⓘ</span></label>
+          <div class="field-input-wrap" style="max-width: none;"><textarea id="new-voice-text" style="min-height: 80px;" required></textarea></div>
+        </div>
+        <div style="margin-top: 16px;"><button type="submit" data-i18n="btn_add_voice">Add Voice</button></div>
+      </form>
+    </div>
+
+    <div class="section">
+      <h2 data-i18n="registered_voices_title">Registered Voices database</h2>
+      <div style="display: flex; gap: 16px; align-items: center; margin: 16px 0;">
+        <input type="text" id="voice-search" data-i18n-placeholder="search_placeholder" placeholder="Search voices..." oninput="filterVoices()" style="flex: 1; padding: 10px 14px; background: var(--bg-input); border:1px solid var(--border-color); border-radius:6px; color:#fff;">
+        <button class="refresh-btn" onclick="loadVoices()" style="margin: 0;"><span data-i18n="btn_reload">↻ Reload</span></button>
+      </div>
+      <div class="voice-table-wrap">
+        <table class="voice-table">
+          <thead>
+            <tr>
+              <th style="width: 20%;" data-i18n="th_speaker_key">Speaker Key</th>
+              <th style="width: 30%;" data-i18n="th_wav_path">Ref WAV Path</th>
+              <th style="width: 35%;" data-i18n="th_transcript">Ref Transcript</th>
+              <th style="width: 15%;" data-i18n="th_actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="voice-table-body">
+            <tr><td colspan="4" style="text-align:center;color:var(--text-muted);">Loading voices...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div id="tutorial-overlay" class="tutorial-overlay" onclick="closeTutorial()"></div>
+<div id="tutorial-card-container" class="tutorial-card-container">
+  <div class="tutorial-card">
+    <div class="tutorial-header">
+      <h3 id="tutorial-title">Руководство по настройке QwenTTS</h3>
+      <button class="tutorial-close" onclick="closeTutorial()">&times;</button>
+    </div>
+    <div class="tutorial-body" id="tutorial-body-content">Загрузка...</div>
+    <div class="tutorial-footer">
+      <div class="tutorial-dots" id="tutorial-dots-container"></div>
+      <div style="display: flex; gap: 8px;">
+        <button class="tutorial-btn prev secondary" id="tutorial-btn-prev" onclick="prevStep()">Назад</button>
+        <button class="tutorial-btn next" id="tutorial-btn-next" onclick="nextStep()">Далее</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/settings.js"></script>
+</body>
+</html>
