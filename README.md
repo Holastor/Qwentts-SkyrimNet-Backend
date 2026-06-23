@@ -36,7 +36,7 @@ You can set up the adapter in two ways depending on whether you want a ready-to-
    * If using a pre-built release, simply extract the `QwenTTS` folder into your working directory.
    * If building from source, clone this repository recursively to fetch the submodule:
      ```bash
-     git clone --recursive [https://github.com/Holastor/Qwentts-SkyrimNet-Backend.git](https://github.com/Holastor/Qwentts-SkyrimNet-Backend.git)
+     git clone --recursive https://github.com/Holastor/Qwentts-SkyrimNet-Backend.git
      ```
 2. **Environment Setup**: Run the `Setup_QwenTTS_Adapter.bat` file. It will create a local `.venv` virtual environment and install all required Python dependencies.
    > [!NOTE]

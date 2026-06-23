@@ -29,7 +29,7 @@
    * Если вы используете готовый релиз, просто распакуйте папку `QwenTTS` в вашу рабочую директорию.
    * Если вы собираете проект из исходников, клонируйте этот репозиторий рекурсивно, чтобы подтянуть подмодуль:
 ```bash
-     git clone --recursive [https://github.com/Holastor/Qwentts-SkyrimNet-Backend.git](https://github.com/Holastor/Qwentts-SkyrimNet-Backend.git)
+     git clone --recursive https://github.com/Holastor/Qwentts-SkyrimNet-Backend.git
      ```
 2. **Настройка окружения**: Запустите файл `Setup_QwenTTS_Adapter.bat`. Он создаст локальное виртуальное окружение `.venv` и установит все необходимые зависимости Python.
 > [!NOTE]
