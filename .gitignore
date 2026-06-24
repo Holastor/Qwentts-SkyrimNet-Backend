@@ -1,0 +1,8 @@
+bin/ggml-base.dll
+bin/ggml-cpu.dll
+bin/ggml-cuda.dll
+bin/ggml-vulkan.dll
+bin/ggml.dll
+bin/qwen-codec.exe
+bin/qwen-tts.exe
+bin/qwen.dll
