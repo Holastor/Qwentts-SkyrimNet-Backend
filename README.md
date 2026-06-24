@@ -17,6 +17,7 @@ The adapter emulates the standard SkyrimNet API (`/tts_to_audio/`, `/health`, `/
 
 * **Local & Fast**: Written in C++17 (GGML), runs entirely on CPU (or GPU via CUDA/Vulkan) without heavy dependencies like PyTorch or Transformers.
 * **Voice Cloning (ICL)**: Supports instant voice cloning using a short reference WAV sample (3–7 seconds) and its corresponding transcript.
+* **Voice Design (Instruct)**: Supports text-description-based voice synthesis using a dedicated `voicedesign` model — no reference audio required, just describe the voice (e.g., `male, adult, moderate pitch`).
 * **Standalone / Offline**: Requires no internet connection once the models are downloaded.
 
 ---
@@ -57,14 +58,43 @@ Dashboard URL: **[http://127.0.0.1:7861/settings](http://127.0.0.1:7861/settings
 * **Backend**: Select the compute core (`CPU`, `CUDA` for NVIDIA graphics cards, or `Vulkan` for AMD/integrated GPUs).
 * **Generation Parameters**: Tweak Temperature (voice expressiveness), Repetition Penalty, Seed (generation seed), and other sampling settings.
 * **Model Management**:
-* If the `models/qwen/` folder is empty, you can **download models directly from HuggingFace** with a single click in the "Download from HuggingFace" section.
-* Select the active language model (`Talker LM`) and audio codec (`Audio Codec`), then click **Apply Models** to reload the backend.
+  * If the `models/qwen/` folder is empty, you can **download models directly from HuggingFace** with a single click in the "Download from HuggingFace" section.
+  * Select the active language model (`Talker LM`) and audio codec (`Audio Codec`), then click **Apply Models** to reload the backend.
 
 ### 2. "Voices Manager" Tab
 * **Import from SkyrimNet**: Sync and automatically download reference voice samples from a running SkyrimNet server.
 > [!IMPORTANT]
 > The import process displays a clear **progress bar, completion percentage, total processed voices, and estimated time remaining**. Before starting the import, make sure the correct language (e.g., `russian`) is selected in the synthesis parameters so the reference files are sorted into the proper directories!
 * **Manual Management**: Add, edit, listen to (via the built-in audio player at the bottom), or delete NPC voices from the `voice_refs_<lang>.json` database.
+
+### 3. "Voices Design" Tab
+> [!NOTE]
+> This tab requires a **voicedesign** model (e.g., `qwen-talker-1.7b-voicedesign-Q8_0.gguf`) to be selected in the Models section.
+
+* **Import from SkyrimNet (Voice Design)**: Bulk-register all voice types from a running SkyrimNet server with automatically generated text descriptions (gender attributes) — no WAV file downloads required.
+* **Manual Management**: Add, edit, or delete voice design entries. Each entry consists of a **Speaker Key** and a **Voice Description** (e.g., `female, young adult, high pitch`).
+* **Preview Playback**: Test any voice design directly from the dashboard — enter a preview text, click ▶ Play, and the adapter will synthesize speech using the instruct description. The language is automatically taken from the current synthesis settings.
+
+> [!TIP]
+> Voice Design mode and ICL (clone) mode use **separate databases**: `voice_design_<lang>.json` and `voice_refs_<lang>.json` respectively. The same speaker key can exist in both databases without conflict. The adapter automatically routes synthesis based on which model type is loaded.
+
+---
+
+## Two Synthesis Modes
+
+QwenTTS supports two fundamentally different approaches to voice synthesis:
+
+| Feature | ICL Mode (Voice Cloning) | Voice Design (Instruct) |
+|---|---|---|
+| **Model** | `base` model (e.g., `qwen-talker-1.7b-base-Q4_K_M.gguf`) | `voicedesign` model (e.g., `qwen-talker-1.7b-voicedesign-Q8_0.gguf`) |
+| **Input** | Reference WAV file + exact transcript text | Text description of voice attributes |
+| **Database** | `voice_refs_<lang>.json` | `voice_design_<lang>.json` |
+| **Dashboard Tab** | Voices Manager | Voices Design |
+| **Quality** | High fidelity cloning of specific voice | Stylized voice based on description |
+| **Use Case** | Precise NPC voice matching | Quick prototyping, generic voices |
+
+> [!IMPORTANT]
+> The adapter automatically protects against mode mismatch: if a `voicedesign` model is loaded but a custom (ICL) voice key is requested (or vice versa), the system will return silence instead of crashing.
 
 ---
 
@@ -83,7 +113,9 @@ QwenTTS/
 │   ├── qwen_speakers/            # Reference WAV files (split by locale, e.g., ru_RU)
 │   ├── runtime_speakers/         # Reference samples uploaded during gameplay
 │   ├── cached_voices/            # Pre-encoded RVQ token cache
-│   └── voice_refs/               # Voice mapping databases (voice_refs_ru_RU.json, etc.)
+│   └── voice_refs/               # Voice mapping databases
+│       ├── voice_refs_ru_RU.json       # Custom voice refs (ICL mode)
+│       └── voice_design_ru_RU.json     # Voice design refs (instruct mode)
 ├── src/                          # Adapter source code
 │   ├── api/                      # Endpoints (FastAPI)
 │   ├── core/                     # Ctypes wrapper for qwen.dll and backend management
@@ -91,8 +123,6 @@ QwenTTS/
 │   └── web/                      # Dashboard frontend (settings.html, settings.css, settings.js)
 └── output_temp/                  # Temporary generated WAVs and diagnostics logs
 ```
-
----
 
 ---
 
