@@ -527,7 +527,7 @@ button.secondary:hover {
 .spotlight-highlight { position: relative; z-index: 9995 !important; box-shadow: 0 0 0 4px var(--accent), 0 4px 20px rgba(0,0,0,0.5) !important; }
 
 /* Консоль импорта */
-.import-console { background: #0a0a0a; color: #00ff00; font-family: monospace; padding: 14px; border-radius: 6px; height: 180px; overflow-y: auto; font-size: 13px; border: 1px solid var(--border-color); margin-top: 12px; }
+.import-console { background: #0a0a0a; color: #00ff00; font-family: monospace; padding: 14px; border-radius: 6px; height: 180px; overflow-y: auto; font-size: 13px; border: 1px solid var(--border-color); margin-top: 12px; white-space: pre-wrap; }
 
 .tab-content { display: none; }
 .tab-content.active-content { display: block; }

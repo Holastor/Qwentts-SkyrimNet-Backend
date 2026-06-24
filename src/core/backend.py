@@ -10,7 +10,7 @@ from src import config
 from src.config import _log
 from src.core.bindings import (
     ABI_VERSION, QtInitParams, QtTtsParams, QtAudio,
-    QT_STATUS_OK, _STATUS_NAMES, qt_version, qt_last_error,
+    QT_STATUS_OK, QT_STATUS_INVALID_PARAMS, _STATUS_NAMES, qt_version, qt_last_error,
     qt_init_default_params, qt_init, qt_free, qt_tts_default_params,
     qt_synthesize, qt_audio_free
 )
@@ -82,8 +82,10 @@ class PersistentQwenTTSBackend:
             _save_debug_text, _diagnose_qwentts_output
         )
 
-        ref_audio_path = Path(voice_ref["ref_audio"])
-        ref_text       = voice_ref["ref_text"]
+        instruct       = voice_ref.get("instruct", "").strip()
+        ref_text       = voice_ref.get("ref_text", "").strip()
+        ref_audio_str  = voice_ref.get("ref_audio", "")
+        ref_audio_path = Path(ref_audio_str) if ref_audio_str else None
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         if output_path.exists():
@@ -117,35 +119,47 @@ class PersistentQwenTTSBackend:
         params.codec_chunk_sec       = config.CODEC_CHUNK_SEC
         params.codec_left_context_sec = config.CODEC_LEFT_CONTEXT_SEC
 
-        # Try ABI v2 cached path first.
-        vc = _ensure_voice_cache(voice_ref["ref_audio"], lang, fallback_ref_text=ref_text)
-        if vc is not None and vc.ref_text is not None:
-            _log("using cached voice (spk + rvq, ABI v2)")
-            params.ref_spk_emb = ctypes.cast(vc.spk_array, POINTER(c_float))
-            params.ref_spk_dim = vc.spk_dim
-            params.ref_codes   = ctypes.cast(vc.codes_array, POINTER(c_int32))
-            params.ref_T       = vc.ref_T
-            params.ref_text    = vc.ref_text
+        if instruct:
+            if "voicedesign" not in str(self.talker_path).lower():
+                _log("ERROR: Voice design instruction requested, but the active model is not a voicedesign model!")
+                return None
+            _log(f"using voice design instruction: {instruct}")
+            params.instruct = instruct.encode("utf-8")
+            if ref_text:
+                params.ref_text = ref_text.encode("utf-8")
         else:
-            # Fall back to raw audio path (ABI v1 compatible).
-            _log("using raw audio path (no voice cache)")
-            if not ref_audio_path.exists():
-                _log(f"ERROR: ref_audio not found: {ref_audio_path}")
+            if "voicedesign" in str(self.talker_path).lower():
+                _log("ERROR: Custom voice requested, but the active model is a voicedesign model which requires --instruct!")
                 return None
-            if not ref_text.strip():
-                _log("ERROR: ref_text is empty")
-                return None
+            # Try ABI v2 cached path first.
+            vc = _ensure_voice_cache(ref_audio_str, lang, fallback_ref_text=ref_text)
+            if vc is not None and vc.ref_text is not None:
+                _log("using cached voice (spk + rvq, ABI v2)")
+                params.ref_spk_emb = ctypes.cast(vc.spk_array, POINTER(c_float))
+                params.ref_spk_dim = vc.spk_dim
+                params.ref_codes   = ctypes.cast(vc.codes_array, POINTER(c_int32))
+                params.ref_T       = vc.ref_T
+                params.ref_text    = vc.ref_text
+            else:
+                # Fall back to raw audio path (ABI v1 compatible).
+                _log("using raw audio path (no voice cache)")
+                if not ref_audio_path or not ref_audio_path.exists():
+                    _log(f"ERROR: ref_audio not found: {ref_audio_path}")
+                    return None
+                if not ref_text.strip():
+                    _log("ERROR: ref_text is empty")
+                    return None
 
-            try:
-                ref_floats, ref_n = _read_wav_mono_24k(str(ref_audio_path))
-            except Exception as exc:
-                _log(f"ERROR: ref_audio decode failed: {exc}")
-                return None
-            self._ref_buf = (c_float * ref_n)(*ref_floats.tolist())
-            ref_ptr = ctypes.cast(self._ref_buf, POINTER(c_float))
-            params.ref_audio_24k    = ref_ptr
-            params.ref_n_samples    = ref_n
-            params.ref_text         = ref_text.encode("utf-8")
+                try:
+                    ref_floats, ref_n = _read_wav_mono_24k(str(ref_audio_path))
+                except Exception as exc:
+                    _log(f"ERROR: ref_audio decode failed: {exc}")
+                    return None
+                self._ref_buf = (c_float * ref_n)(*ref_floats.tolist())
+                ref_ptr = ctypes.cast(self._ref_buf, POINTER(c_float))
+                params.ref_audio_24k    = ref_ptr
+                params.ref_n_samples    = ref_n
+                params.ref_text         = ref_text.encode("utf-8")
 
         if config.DUMP_DIR is not None:
             params.dump_dir = str(config.DUMP_DIR).encode("utf-8")
@@ -190,7 +204,7 @@ class PersistentQwenTTSBackend:
             msg  = err.decode() if err else ""
             _log(f"ERROR: qt_synthesize returned {name}: {msg}")
 
-            if status == QT_STATUS_INVALID_PARAMS and "ref_spk_dim" in msg and "mismatches" in msg:
+            if status == QT_STATUS_INVALID_PARAMS and "ref_spk_dim" in msg and "mismatches" in msg and ref_audio_path:
                 _log("WARNING: Detected speaker embedding dimension mismatch in voice cache!")
                 lang_code = config._get_lang_code(lang)
                 cache_key = f"{lang_code}:{str(ref_audio_path.resolve())}"

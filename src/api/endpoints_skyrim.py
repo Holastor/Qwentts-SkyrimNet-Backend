@@ -12,7 +12,7 @@ from src.config import (
 )
 from src.services.audio import generate_silence_wav
 from src.services.text import _prepare_qwentts_gen_text
-from src.services.importer import VOICE_REFS
+from src.services.importer import VOICE_REFS, VOICE_DESIGN_REFS
 
 router = APIRouter()
 
@@ -45,13 +45,60 @@ def _write_silence_file(save_path: Optional[str], lang_code: str = "en_US") -> P
     return output_path
 
 
-def _resolve_voice_ref(speaker_wav: Optional[str], gen_text: str) -> Optional[Dict[str, str]]:
+def _resolve_voice_ref(speaker_wav: Optional[str], gen_text: str) -> Optional[Dict[str, Any]]:
     requested_key = speaker_wav or ""
-    resolved_key = requested_key if requested_key in VOICE_REFS else "default"
-    voice_ref = VOICE_REFS.get(resolved_key)
+    
+    from src.core import backend
+    is_voicedesign_model = False
+    if backend.PERSISTENT_BACKEND and backend.PERSISTENT_BACKEND.talker_path:
+        is_voicedesign_model = "voicedesign" in str(backend.PERSISTENT_BACKEND.talker_path).lower()
+
+    is_custom = requested_key in VOICE_REFS
+    is_design = requested_key in VOICE_DESIGN_REFS
+
+    resolved_key = "default"
+    voice_ref = None
+    type_mode = "unknown"
+
+    if is_voicedesign_model:
+        if is_design:
+            resolved_key = requested_key
+            voice_ref = VOICE_DESIGN_REFS.get(resolved_key)
+            type_mode = "design"
+        elif is_custom:
+            resolved_key = requested_key
+            voice_ref = VOICE_REFS.get(resolved_key)
+            type_mode = "custom"
+        else:
+            if "default" in VOICE_DESIGN_REFS:
+                resolved_key = "default"
+                voice_ref = VOICE_DESIGN_REFS.get(resolved_key)
+                type_mode = "design"
+            elif "default" in VOICE_REFS:
+                resolved_key = "default"
+                voice_ref = VOICE_REFS.get(resolved_key)
+                type_mode = "custom"
+    else:
+        if is_custom:
+            resolved_key = requested_key
+            voice_ref = VOICE_REFS.get(resolved_key)
+            type_mode = "custom"
+        elif is_design:
+            resolved_key = requested_key
+            voice_ref = VOICE_DESIGN_REFS.get(resolved_key)
+            type_mode = "design"
+        else:
+            if "default" in VOICE_REFS:
+                resolved_key = "default"
+                voice_ref = VOICE_REFS.get(resolved_key)
+                type_mode = "custom"
+            elif "default" in VOICE_DESIGN_REFS:
+                resolved_key = "default"
+                voice_ref = VOICE_DESIGN_REFS.get(resolved_key)
+                type_mode = "design"
 
     _log(f"current backend: qwentts-persistent")
-    _log(f"current mode: persistent")
+    _log(f"current mode: persistent ({type_mode})")
     _log(f"requested speaker_wav: {requested_key}")
     _log(f"resolved speaker key: {resolved_key if voice_ref else None}")
 
@@ -60,20 +107,29 @@ def _resolve_voice_ref(speaker_wav: Optional[str], gen_text: str) -> Optional[Di
         _log(f"gen_text length: {len(gen_text)}")
         return None
 
-    ref_audio = voice_ref["ref_audio"]
-    ref_text = voice_ref["ref_text"]
-    ref_audio_path = _resolve_path(ref_audio)
-    ref_audio_exists = ref_audio_path.exists()
+    if type_mode == "design":
+        instruct = voice_ref.get("instruct", "")
+        _log(f"instruct description: {instruct}")
+        _log(f"gen_text length: {len(gen_text)}")
+        return {
+            "speaker_key": resolved_key,
+            "instruct": instruct,
+        }
+    else:
+        ref_audio = voice_ref.get("ref_audio", "")
+        ref_text = voice_ref.get("ref_text", "")
+        ref_audio_path = _resolve_path(ref_audio)
+        ref_audio_exists = ref_audio_path.exists()
 
-    _log(f"ref_audio: {ref_audio_path}")
-    _log(f"ref_audio exists: {ref_audio_exists}")
-    _log(f"ref_text preview: {ref_text[:80]}")
-    _log(f"gen_text length: {len(gen_text)}")
-    return {
-        "speaker_key": resolved_key,
-        "ref_audio": str(ref_audio_path),
-        "ref_text": ref_text,
-    }
+        _log(f"ref_audio: {ref_audio_path}")
+        _log(f"ref_audio exists: {ref_audio_exists}")
+        _log(f"ref_text preview: {ref_text[:80]}")
+        _log(f"gen_text length: {len(gen_text)}")
+        return {
+            "speaker_key": resolved_key,
+            "ref_audio": str(ref_audio_path),
+            "ref_text": ref_text,
+        }
 
 
 def _is_localhost_request(request: Request) -> bool:

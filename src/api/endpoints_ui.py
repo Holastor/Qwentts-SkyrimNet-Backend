@@ -19,10 +19,13 @@ class VoiceSaveRequest(BaseModel):
     key: str = ""
     ref_audio: str = ""
     ref_text: str = ""
+    instruct: str = ""
+    db_type: str = ""  # "design" or "custom"
 
 
 class VoiceDeleteRequest(BaseModel):
     key: str = ""
+    db_type: str = ""  # "design" or "custom"
 
 
 class VoiceImportRequest(BaseModel):
@@ -30,6 +33,7 @@ class VoiceImportRequest(BaseModel):
     selection_mode: str = "qwentts-safe"
     force: bool = False
     preserve_existing: bool = True
+    design_mode: bool = False
 
 
 def _require_settings_api(request: Request) -> None:
@@ -74,12 +78,14 @@ async def _fetch_hf_model_list() -> list[Dict[str, Any]]:
     for sib in siblings:
         path = sib.get("rfilename", "")
         if path.endswith(".gguf"):
-            gguf_files.append({
-                "name": path.split("/")[-1],
-                "path": path,
-                "size_bytes": sib.get("size", 0),
-                "download_url": f"https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF/resolve/main/{path}",
-            })
+            name_lower = path.split("/")[-1].lower()
+            if "customvoice" not in name_lower:
+                gguf_files.append({
+                    "name": path.split("/")[-1],
+                    "path": path,
+                    "size_bytes": sib.get("size", 0),
+                    "download_url": f"https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF/resolve/main/{path}",
+                })
     return gguf_files
 
 
@@ -468,7 +474,10 @@ async def models_api_select(request: Request) -> Dict[str, Any]:
 @router.get("/voices/api/list")
 async def voices_api_list(request: Request) -> Dict[str, Any]:
     _require_settings_api(request)
-    return importer.VOICE_REFS
+    return {
+        "custom": importer.VOICE_REFS,
+        "design": importer.VOICE_DESIGN_REFS
+    }
 
 
 @router.post("/voices/api/save")
@@ -477,23 +486,39 @@ async def voices_api_save(request: Request, payload: VoiceSaveRequest) -> Dict[s
     key = payload.key.strip()
     ref_audio = payload.ref_audio.strip()
     ref_text = payload.ref_text.strip()
+    instruct = payload.instruct.strip()
+    db_type = payload.db_type.strip().lower()
 
     if not key:
         raise HTTPException(status_code=400, detail="Key must not be empty")
-    if not ref_audio:
-        raise HTTPException(status_code=400, detail="Reference audio path must not be empty")
-    if not ref_text:
-        raise HTTPException(status_code=400, detail="Reference transcript must not be empty")
 
-    importer.VOICE_REFS[key] = {
-        "ref_audio": ref_audio,
-        "ref_text": ref_text
-    }
+    # Determine target database: explicit db_type takes priority, fallback to auto-detect
+    is_design = db_type == "design" or (not db_type and bool(instruct))
 
-    path = _get_voice_refs_path()
+    if is_design:
+        if not instruct:
+            raise HTTPException(status_code=400, detail="Voice description (instruct) must not be empty for design voices")
+        importer.VOICE_DESIGN_REFS[key] = {
+            "instruct": instruct
+        }
+        from src.config import _get_voice_design_path
+        path = _get_voice_design_path()
+        db = importer.VOICE_DESIGN_REFS
+    else:
+        if not ref_audio:
+            raise HTTPException(status_code=400, detail="Reference audio path must not be empty for custom voices")
+        if not ref_text:
+            raise HTTPException(status_code=400, detail="Reference transcript must not be empty for custom voices")
+        importer.VOICE_REFS[key] = {
+            "ref_audio": ref_audio,
+            "ref_text": ref_text
+        }
+        path = _get_voice_refs_path()
+        db = importer.VOICE_REFS
+
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
-        json.dump(importer.VOICE_REFS, f, ensure_ascii=False, indent=2)
+        json.dump(db, f, ensure_ascii=False, indent=2)
         f.write("\n")
 
     importer.reload_voice_refs()
@@ -504,22 +529,49 @@ async def voices_api_save(request: Request, payload: VoiceSaveRequest) -> Dict[s
 async def voices_api_delete(request: Request, payload: VoiceDeleteRequest) -> Dict[str, Any]:
     _require_settings_api(request)
     key = payload.key.strip()
+    db_type = payload.db_type.strip().lower()
     if not key:
         raise HTTPException(status_code=400, detail="Key must not be empty")
 
-    if key in importer.VOICE_REFS:
-        del importer.VOICE_REFS[key]
+    deleted = False
+    # Use explicit db_type when provided to avoid ambiguity
+    if db_type == "design":
+        if key in importer.VOICE_DESIGN_REFS:
+            from src.config import _get_voice_design_path
+            del importer.VOICE_DESIGN_REFS[key]
+            path = _get_voice_design_path()
+            db = importer.VOICE_DESIGN_REFS
+            deleted = True
+    elif db_type == "custom":
+        if key in importer.VOICE_REFS:
+            del importer.VOICE_REFS[key]
+            path = _get_voice_refs_path()
+            db = importer.VOICE_REFS
+            deleted = True
+    else:
+        # Fallback: auto-detect (for backward compatibility)
+        if key in importer.VOICE_REFS:
+            del importer.VOICE_REFS[key]
+            path = _get_voice_refs_path()
+            db = importer.VOICE_REFS
+            deleted = True
+        elif key in importer.VOICE_DESIGN_REFS:
+            from src.config import _get_voice_design_path
+            del importer.VOICE_DESIGN_REFS[key]
+            path = _get_voice_design_path()
+            db = importer.VOICE_DESIGN_REFS
+            deleted = True
 
-        path = _get_voice_refs_path()
+    if deleted:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as f:
-            json.dump(importer.VOICE_REFS, f, ensure_ascii=False, indent=2)
+            json.dump(db, f, ensure_ascii=False, indent=2)
             f.write("\n")
 
         importer.reload_voice_refs()
         return {"success": True, "key": key}
     else:
-        raise HTTPException(status_code=404, detail=f"Voice key '{key}' not found")
+        raise HTTPException(status_code=404, detail=f"Voice key '{key}' not found in {db_type or 'any'} database")
 
 
 @router.get("/voices/api/play")
@@ -551,7 +603,8 @@ async def voices_api_import(request: Request, payload: VoiceImportRequest) -> Di
                 payload.base_url,
                 payload.selection_mode,
                 payload.force,
-                payload.preserve_existing
+                payload.preserve_existing,
+                payload.design_mode
             ),
             daemon=True
         )

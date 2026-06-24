@@ -15,6 +15,7 @@
   <nav class="tabs-nav">
     <button class="tab-btn active" id="btn-settings" onclick="switchTab('settings')">⚙️ <span data-i18n="tab_settings">Settings & Models</span></button>
     <button class="tab-btn" id="btn-voices" onclick="switchTab('voices')">👥 <span data-i18n="tab_voices">Voices Manager</span></button>
+    <button class="tab-btn" id="btn-voice_design" onclick="switchTab('voice_design')">👥 <span data-i18n="tab_voice_design">Voices Design</span></button>
   </nav>
   <div class="sidebar-footer">
     <select id="lang-select" onchange="changeSiteLang(this.value)" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-input); color: #fff; cursor: pointer; width: 100%;">
@@ -185,7 +186,101 @@
       </div>
     </div>
   </div>
+
+  <div id="tab-voice_design" class="tab-content">
+    
+    <div class="section" id="section-import-design">
+      <h2 data-i18n="import_skyrimnet_design_title">Import Voices from SkyrimNet (Voice Design)</h2>
+      <p class="section-desc" data-i18n="import_skyrimnet_design_desc">Scan a running SkyrimNet server to register design voices with default gender attributes (without downloading files).</p>
+      <form id="import-design-form" onsubmit="startDesignImport(event)">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 16px;">
+          <div>
+            <label for="import-design-url" style="display:block; margin-bottom:8px; font-size:14px;" data-i18n="import_url_label">SkyrimNet URL:</label>
+            <input type="text" id="import-design-url" value="http://127.0.0.1:8080">
+          </div>
+        </div>
+        <div style="display: flex; gap: 24px; margin: 20px 0; flex-wrap: wrap; font-size:14px;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="import-design-preserve" checked style="accent-color: var(--accent);"> <span data-i18n="import_preserve_label">Preserve existing refs</span>
+          </label>
+        </div>
+        <button type="submit" data-i18n="btn_start_import">Start Sync / Import</button>
+      </form>
+      <!-- Progress Bar Container -->
+      <div id="import-design-progress-container" style="display: none; margin-top: 20px; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; font-weight: 500;">
+          <span id="import-design-progress-status" style="color: var(--accent);">Processing...</span>
+          <span id="import-design-progress-percentage" style="font-family: monospace; font-weight: bold; color: var(--accent);">0%</span>
+        </div>
+        <div style="width: 100%; height: 12px; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; position: relative; margin: 8px 0;">
+          <div id="import-design-progress-bar" style="width: 0%; height: 100%; background: var(--accent); transition: width 0.3s ease;"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--text-muted); font-family: monospace;">
+          <span id="import-design-progress-counts">Processed: 0 / 0</span>
+          <span id="import-design-progress-remaining">Remaining: 0</span>
+        </div>
+      </div>
+      <div id="import-design-console" class="import-console" style="display: none;"></div>
+    </div>
+
+    <div class="section" id="section-manual-design">
+      <h2 data-i18n="add_voice_design_title">Add New Voice Reference Manually (Voice Design)</h2>
+      <p class="section-desc" data-i18n="add_voice_design_desc">Create a new voice reference for Voice Design. Enter attributes/description instead of a WAV path.</p>
+      <form id="add-voice-design-form" onsubmit="addVoiceDesign(event)">
+        <div class="field">
+          <label for="new-voice-design-key"><span data-i18n="new_voice_key_label">Speaker Name / Key:</span> <span class="tooltip-icon" data-i18n-tip="voice_key_tip" data-tip="Unique ID">ⓘ</span></label>
+          <div class="field-input-wrap" style="max-width: none;"><input type="text" id="new-voice-design-key" required></div>
+        </div>
+        <div class="field">
+          <label for="new-voice-design-instruct"><span data-i18n="new_voice_design_instruct_label">Voice Description:</span> <span class="tooltip-icon" data-i18n-tip="voice_design_instruct_tip" data-tip="e.g. male, young adult, moderate pitch">ⓘ</span></label>
+          <div class="field-input-wrap" style="max-width: none;"><input type="text" id="new-voice-design-instruct" placeholder="male, young adult, moderate pitch" required></div>
+        </div>
+
+        <div style="margin-top: 16px;"><button type="submit" data-i18n="btn_add_voice">Add Voice</button></div>
+      </form>
+    </div>
+
+    <div class="section">
+      <h2 data-i18n="registered_design_voices_title">Registered Design Voices Database</h2>
+      <div style="display: flex; flex-direction: column; gap: 12px; margin: 16px 0;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 14px; color: var(--text-muted); font-weight: 500;" data-i18n="label_preview_text">Текст для прослушивания:</span>
+          <input type="text" id="design-preview-text" value="Привет! Это проверка синтеза речи в режиме дизайна голоса." style="flex: 1; padding: 10px 14px; background: var(--bg-input); border:1px solid var(--border-color); border-radius:6px; color:#fff;">
+        </div>
+        <div style="display: flex; gap: 16px; align-items: center;">
+          <input type="text" id="voice-design-search" data-i18n-placeholder="search_placeholder" placeholder="Search voices..." oninput="filterDesignVoices()" style="flex: 1; padding: 10px 14px; background: var(--bg-input); border:1px solid var(--border-color); border-radius:6px; color:#fff;">
+          <button class="refresh-btn" onclick="loadDesignVoices()" style="margin: 0;"><span data-i18n="btn_reload">↻ Reload</span></button>
+        </div>
+      </div>
+      <div class="voice-table-wrap">
+        <table class="voice-table">
+          <thead>
+            <tr>
+              <th style="width: 25%;" data-i18n="th_speaker_key">Speaker Key</th>
+              <th style="width: 50%;" data-i18n="th_voice_description">Voice Description</th>
+              <th style="width: 25%;" data-i18n="th_actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="voice-design-table-body">
+            <tr><td colspan="4" style="text-align:center;color:var(--text-muted);">Loading voices...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 </main>
+
+<!-- Floating Audio Player -->
+<div id="footer-audio-player" style="position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg-card); border-top: 1px solid var(--border-color); padding: 12px 24px; display: none; align-items: center; justify-content: space-between; z-index: 1000; box-shadow: 0 -4px 12px rgba(0,0,0,0.4);">
+  <div class="player-info" style="display: flex; flex-direction: column; gap: 4px;">
+    <span style="font-weight: 500; font-size: 13px;" data-i18n="now_playing">Воспроизведение:</span>
+    <span id="player-file-path" style="font-size: 12px; color: var(--text-muted); font-family: monospace;"></span>
+  </div>
+  <div class="player-controls">
+    <audio id="player-audio-element" controls style="height: 32px;"></audio>
+    <button onclick="document.getElementById('footer-audio-player').style.display = 'none'; const ae = document.getElementById('player-audio-element'); if(ae) ae.pause();" style="background: transparent; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; padding: 4px 8px; line-height: 1;">&times;</button>
+  </div>
+</div>
 
 <div id="tutorial-overlay" class="tutorial-overlay" onclick="closeTutorial()"></div>
 <div id="tutorial-card-container" class="tutorial-card-container">

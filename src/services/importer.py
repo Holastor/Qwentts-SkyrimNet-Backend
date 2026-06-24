@@ -10,6 +10,7 @@ from src.config import _log, PROJECT_ROOT, VOICES_DIR
 
 # Voice refs database in-memory cache
 VOICE_REFS: Dict[str, Dict[str, str]] = {}
+VOICE_DESIGN_REFS: Dict[str, Dict[str, str]] = {}
 
 
 def load_voice_refs() -> Dict[str, Dict[str, str]]:
@@ -38,7 +39,8 @@ def load_voice_refs() -> Dict[str, Dict[str, str]]:
 
         ref_audio = value.get("ref_audio")
         ref_text = value.get("ref_text")
-        if not isinstance(ref_audio, str) or not isinstance(ref_text, str):
+
+        if not isinstance(ref_text, str) or not isinstance(ref_audio, str):
             _log(f"WARNING: voice ref '{key}' must contain ref_audio and ref_text strings, skipping")
             continue
 
@@ -50,17 +52,54 @@ def load_voice_refs() -> Dict[str, Dict[str, str]]:
     return valid_refs
 
 
+def load_voice_design_refs() -> Dict[str, Dict[str, str]]:
+    """Load QwenTTS design voice references from voice_design_<lang>.json in the project root."""
+    path = config._get_voice_design_path()
+    if not path.exists():
+        return {}
+
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+    except Exception as exc:
+        _log(f"WARNING: failed to load {path}: {exc}")
+        return {}
+
+    if not isinstance(data, dict):
+        _log(f"WARNING: {path} must contain a JSON object, using empty voice design refs")
+        return {}
+
+    valid_refs: Dict[str, Dict[str, str]] = {}
+    for key, value in data.items():
+        if not isinstance(value, dict):
+            _log(f"WARNING: voice design ref '{key}' is not an object, skipping")
+            continue
+
+        instruct = value.get("instruct")
+        if not isinstance(instruct, str):
+            _log(f"WARNING: voice design ref '{key}' must contain instruct string, skipping")
+            continue
+
+        valid_refs[key] = {"instruct": instruct}
+
+    _log(f"loaded voice design refs: {len(valid_refs)} entries from {path}")
+    return valid_refs
+
+
 def reload_voice_refs() -> Dict[str, Dict[str, str]]:
-    """Reload voice_refs.json from disk and update the global VOICE_REFS dict."""
-    global VOICE_REFS
+    """Reload voice reference files from disk and update the global VOICE_REFS and VOICE_DESIGN_REFS dicts."""
+    global VOICE_REFS, VOICE_DESIGN_REFS
     VOICE_REFS.clear()
     VOICE_REFS.update(load_voice_refs())
-    _log(f"voice_refs reloaded: {len(VOICE_REFS)} entries")
+    VOICE_DESIGN_REFS.clear()
+    VOICE_DESIGN_REFS.update(load_voice_design_refs())
+    _log(f"voice_refs reloaded: {len(VOICE_REFS)} custom refs, {len(VOICE_DESIGN_REFS)} design refs")
     return VOICE_REFS
 
 
 # Initial load
 VOICE_REFS.update(load_voice_refs())
+VOICE_DESIGN_REFS.update(load_voice_design_refs())
 
 # ---------------------------------------------------------------------------
 # Background Import Status
@@ -94,7 +133,7 @@ class RealTimeLogger(io.StringIO):
 
 # Selection logic parameters
 MIN_DURATION_SEC = 3.0
-MAX_DURATION_SEC = 7.0
+MAX_DURATION_SEC = 5.0
 MIN_TEXT_LEN = 20
 MAX_TEXT_LEN = 120
 
@@ -177,6 +216,7 @@ def import_voice_samples(
     preserve_existing: bool = True,
     audit_only: bool = False,
     voice_refs_path: Path = None,
+    design_mode: bool = False,
 ) -> list[dict]:
     import urllib.parse
     from datetime import datetime, timezone
@@ -220,27 +260,96 @@ def import_voice_samples(
             _IMPORT_STATUS["processed"] = idx
         if isinstance(voice_type, dict):
             voice_name = voice_type.get("voice_type_id", voice_type.get("name", str(voice_type)))
+            selected_path = voice_type.get("selected_sample_path", "")
+            if not design_mode and (not selected_path or not str(selected_path).strip()):
+                _log(f"[{idx + 1}/{len(voice_types)}] Skipping voice: {voice_name} (no selected sample path on SkyrimNet)")
+                continue
         else:
             voice_name = str(voice_type)
 
         _log(f"[{idx + 1}/{len(voice_types)}] Processing voice: {voice_name}")
         entry = {"voice": voice_name, "status": "pending"}
 
-        if preserve_existing and voice_name in VOICE_REFS and not force:
-            existing = VOICE_REFS[voice_name]
-            if existing.get("ref_audio") and existing.get("ref_text"):
-                _log(f"  Existing voice ref preserved for {voice_name}")
+        if design_mode:
+            if voice_name in VOICE_DESIGN_REFS and VOICE_DESIGN_REFS[voice_name].get("instruct"):
+                _log(f"  Existing voice design ref and instruction preserved for {voice_name}")
                 entry["status"] = "preserved_existing"
                 report.append(entry)
                 continue
 
+            gender = "female" if "female" in voice_name.lower() else "male"
+            default_instruct = f"{gender}, adult, moderate pitch"
+
+            VOICE_DESIGN_REFS[voice_name] = {
+                "instruct": default_instruct
+            }
+
+            design_path = config._get_voice_design_path()
+            design_path.parent.mkdir(parents=True, exist_ok=True)
+            with design_path.open("w", encoding="utf-8") as f:
+                json.dump(VOICE_DESIGN_REFS, f, ensure_ascii=False, indent=2)
+                f.write("\n")
+
+            _log(f"  Successfully registered design voice: {voice_name} with default instruct '{default_instruct}'")
+            entry["status"] = "imported"
+            report.append(entry)
+            continue
+
         target_wav = speakers_dir / f"{voice_name}.wav"
-        if target_wav.exists() and preserve_existing and not force:
-            if voice_name not in VOICE_REFS:
-                _log(f"  WAV exists, but no entry in voice refs database for {voice_name}")
-                entry["status"] = "skipped_existing_audio_no_force"
+        if target_wav.exists() and not force:
+            # If already fully registered in database and file exists, preserve it and skip completely
+            if voice_name in VOICE_REFS and VOICE_REFS[voice_name].get("ref_audio") and VOICE_REFS[voice_name].get("ref_text"):
+                _log(f"  Existing voice ref and WAV file preserved for {voice_name}")
+                entry["status"] = "preserved_existing"
                 report.append(entry)
                 continue
+            
+            # If WAV exists but is not registered in the database, fetch metadata to register it without downloading
+            _log(f"  WAV file exists on disk for {voice_name}, but needs registration. Fetching metadata...")
+            endpoint = f"{base_url.rstrip('/')}/voice-samples?api=samples&voice_type_id={urllib.parse.quote(voice_name)}"
+            samples_data = _fetch_json(endpoint)
+            if not samples_data:
+                _log(f"  No samples metadata found for {voice_name} to register existing WAV")
+                entry["status"] = "no_samples_data"
+                report.append(entry)
+                continue
+            
+            samples = samples_data if isinstance(samples_data, list) else samples_data.get("samples", [])
+            if not samples:
+                _log(f"  No usable samples found for {voice_name} to register existing WAV")
+                entry["status"] = "no_usable_samples"
+                report.append(entry)
+                continue
+
+            scored = []
+            for s in samples:
+                text = s.get("text_content", s.get("text", "")) or ""
+                dur = float(s.get("duration", s.get("duration_seconds", 10)))
+                score, reason = _score_sample(text, dur)
+                scored.append((score, reason, s))
+
+            scored.sort(key=lambda x: x[0])
+            best_score, best_reason, best_sample = scored[0]
+
+            sample_path = best_sample.get("file_path", best_sample.get("sample_path", best_sample.get("path", "")))
+            sample_text = best_sample.get("text_content", best_sample.get("text", "")) or ""
+            sample_dur = float(best_sample.get("duration", best_sample.get("duration_seconds", 0)))
+
+            VOICE_REFS[voice_name] = {
+                "ref_audio": str(target_wav.relative_to(PROJECT_ROOT) if target_wav.is_relative_to(PROJECT_ROOT) else target_wav),
+                "ref_text": sample_text,
+            }
+
+            # Save DB directly
+            refs_path.parent.mkdir(parents=True, exist_ok=True)
+            with refs_path.open("w", encoding="utf-8") as f:
+                json.dump(VOICE_REFS, f, ensure_ascii=False, indent=2)
+                f.write("\n")
+
+            _log(f"  Successfully registered existing WAV in voice refs database: {target_wav}")
+            entry["status"] = "imported"
+            report.append(entry)
+            continue
 
         # Fetch samples
         endpoint = f"{base_url.rstrip('/')}/voice-samples?api=samples&voice_type_id={urllib.parse.quote(voice_name)}"
@@ -279,7 +388,7 @@ def import_voice_samples(
             ref_audio = ref_entry.get("ref_audio", "")
             ref_text = ref_entry.get("ref_text", "")
             wav_exists = Path(ref_audio).exists() if ref_audio else False
-            has_metadata = all(ref_entry.get(k) for k in ("source_file_name", "source_file_path", "duration"))
+            has_metadata = True
 
             entry["ref_audio_exists"] = wav_exists
             entry["ref_text_present"] = bool(ref_text)
@@ -306,12 +415,6 @@ def import_voice_samples(
                 VOICE_REFS[voice_name] = {
                     "ref_audio": str(target_wav.relative_to(PROJECT_ROOT) if target_wav.is_relative_to(PROJECT_ROOT) else target_wav),
                     "ref_text": sample_text,
-                    "source_file_path": sample_path,
-                    "source_file_name": Path(sample_path).name,
-                    "plugin_name": "",
-                    "duration": sample_dur,
-                    "imported_at": datetime.now(timezone.utc).isoformat(),
-                    "selection_mode": selection_mode,
                 }
                 
                 # Save DB directly
@@ -348,7 +451,7 @@ def import_voice_samples(
     return report
 
 
-def _run_voice_import(base_url: str, selection_mode: str, force: bool, preserve_existing: bool) -> list[dict]:
+def _run_voice_import(base_url: str, selection_mode: str, force: bool, preserve_existing: bool, design_mode: bool = False) -> list[dict]:
     lang_code = config._get_lang_code()
     speakers_dir = VOICES_DIR / "qwen_speakers" / lang_code
     speakers_dir.mkdir(parents=True, exist_ok=True)
@@ -362,11 +465,12 @@ def _run_voice_import(base_url: str, selection_mode: str, force: bool, preserve_
         selection_mode=selection_mode,
         preserve_existing=preserve_existing,
         audit_only=False,
-        voice_refs_path=refs_path
+        voice_refs_path=refs_path,
+        design_mode=design_mode
     )
 
 
-def _background_import_task(base_url: str, selection_mode: str, force: bool, preserve_existing: bool):
+def _background_import_task(base_url: str, selection_mode: str, force: bool, preserve_existing: bool, design_mode: bool = False):
     global _IMPORT_STATUS, _IMPORT_LOGGER
     import contextlib
 
@@ -374,7 +478,7 @@ def _background_import_task(base_url: str, selection_mode: str, force: bool, pre
     with contextlib.redirect_stdout(_IMPORT_LOGGER):
         try:
             print(f"--- Import started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---")
-            report = _run_voice_import(base_url, selection_mode, force, preserve_existing)
+            report = _run_voice_import(base_url, selection_mode, force, preserve_existing, design_mode)
             reload_voice_refs()
             print(f"\n--- Import finished successfully! ---")
             print(f"Total voice types processed: {len(report)}")

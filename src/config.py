@@ -151,6 +151,14 @@ def _get_lang_code(user_lang: Optional[str] = None) -> str:
     return mapping.get(lang, "en_US")
 
 
+def _get_voice_design_path() -> Path:
+    """Get the dynamic path to voice_design_<lang_code>.json."""
+    lang_code = _get_lang_code()
+    refs_dir = VOICES_DIR / "voice_refs"
+    refs_dir.mkdir(parents=True, exist_ok=True)
+    return refs_dir / f"voice_design_{lang_code}.json"
+
+
 def _get_voice_refs_path() -> Path:
     """Get the dynamic path to voice_refs_<lang_code>.json, migrating global database if necessary."""
     lang_code = _get_lang_code()
