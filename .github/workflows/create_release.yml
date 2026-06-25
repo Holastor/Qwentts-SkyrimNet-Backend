@@ -12,32 +12,35 @@ on:
         required: true
         default: 'QwenTTS v1.2.1 — Dynamic Backends Hotfix'
 
+# Выдаем права на запись контента и релизов для автоматического токена
+permissions:
+  contents: write
+
 jobs:
   build_release:
     runs-on: ubuntu-latest
     steps:
-      # 1. Скачиваем чистый исходный код из репозитория (без субмодулей)
+      # 1. Скачиваем чистый исходный код из репозитория
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      # 2. Архивируем проект БЕЗ локального мусора (.git, виртуального окружения, кэша и логов)
+      # 2. Архивируем проект БЕЗ локального мусора
       - name: Pack Source Code
         run: |
           mkdir -p release_package
-          # Копируем структуру, игнорируя всё лишнее
           rsync -arv --exclude='.git*' --exclude='.venv' --exclude='output_temp' --exclude='release_package' --exclude='Voices/cached_voices' ./ release_package/
           cd release_package
           zip -r ../QwenTTS_Adapter_${{ github.event.inputs.tag_name }}.zip ./*
           cd ..
 
-      # 3. Публикуем черновик релиза на GitHub
+      # 3. Публикуем черновик релиза на GitHub (теперь права есть!)
       - name: Create GitHub Release Draft
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag_name }}
           name: ${{ github.event.inputs.release_name }}
-          draft: true # Создает черновик, чтобы ты мог вручную прикрепить bin
+          draft: true
           files: QwenTTS_Adapter_${{ github.event.inputs.tag_name }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
