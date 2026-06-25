@@ -49,7 +49,15 @@ class PersistentQwenTTSBackend:
         iparams.clamp_fp16   = clamp_fp16
 
         started = time.perf_counter()
-        ctx = qt_init(ctypes.byref(iparams))
+        old_cwd = Path.cwd()
+        bin_dir = Path(__file__).resolve().parents[2] / "bin"
+        if bin_dir.exists():
+            os.chdir(bin_dir)
+        try:
+            ctx = qt_init(ctypes.byref(iparams))
+        finally:
+            os.chdir(old_cwd)
+
         if not ctx:
             err = qt_last_error()
             msg = err.decode() if err else "unknown error"
