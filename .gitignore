@@ -7,3 +7,5 @@ bin/qwen-codec.exe
 bin/qwen-tts.exe
 bin/qwen.dll
 *.zip
+*.pyc
+src/local_settings/qwen_settings.json

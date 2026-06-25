@@ -100,7 +100,7 @@ if not defined BACKEND_DIR (
 )
 
 echo        Found backend: %BACKEND_DIR%
-python -c "import os,ctypes; d=os.path.abspath('%BACKEND_DIR%'); os.add_dll_directory(d); os.environ['PATH']=d+os.pathsep+os.environ.get('PATH',''); q=ctypes.CDLL(os.path.join(d,'qwen.dll'),winmode=0); q.qt_version.restype=ctypes.c_char_p; q.qt_version.argtypes=[]; print('        qwen.dll loaded, version:', q.qt_version().decode())"
+python -c "import os,ctypes,glob; d=os.path.abspath('%BACKEND_DIR%'); os.add_dll_directory(d); os.environ['PATH']=d+os.pathsep+os.environ.get('PATH',''); [ctypes.CDLL(p,winmode=0) for p in sorted(glob.glob(os.path.join(d,'ggml*.dll')))]; q=ctypes.CDLL(os.path.join(d,'qwen.dll'),winmode=0); q.qt_version.restype=ctypes.c_char_p; q.qt_version.argtypes=[]; print('        qwen.dll loaded, version:', q.qt_version().decode())"
 if errorlevel 1 (
     echo        ERROR: qwen.dll found but failed to load via ctypes.
     echo        Check that all ggml*.dll dependencies are present.

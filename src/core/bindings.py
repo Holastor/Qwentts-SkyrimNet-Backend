@@ -111,7 +111,8 @@ def _find_backend_dir(bin_base: Path) -> Path | None:
 def _load_qwen_dll(bin_base: Path):
     """Load qwen.dll from the common bin directory.
 
-    Sets PATH so that qwen.dll can find its ggml*.dll dependencies.
+    Explicitly pre-loads ggml*.dll dependencies before loading qwen.dll
+    to work around Windows DLL search-path issues with transitive deps.
     """
     backend_dir = _find_backend_dir(bin_base)
     if backend_dir is None:
@@ -120,10 +121,36 @@ def _load_qwen_dll(bin_base: Path):
             f"Expected qwen.dll + ggml*.dll in the same directory."
         )
 
-    if backend_dir.is_dir():
-        # Add to both DLL search path and system PATH
-        os.add_dll_directory(str(backend_dir))
-        os.environ["PATH"] = str(backend_dir) + os.pathsep + os.environ.get("PATH", "")
+    abs_dir = str(backend_dir.resolve())
+
+    # Add to both DLL search path and system PATH
+    try:
+        os.add_dll_directory(abs_dir)
+    except (OSError, AttributeError):
+        pass
+    os.environ["PATH"] = abs_dir + os.pathsep + os.environ.get("PATH", "")
+
+    # Pre-load ggml dependency DLLs in the correct order so that qwen.dll
+    # finds them already in memory.  Load order matters: base → backend →
+    # ggml umbrella → qwen.
+    _GGML_LOAD_ORDER = [
+        "ggml-base.dll",
+        "ggml-cpu.dll",
+        "ggml-cuda.dll",
+        "ggml-vulkan.dll",
+        "ggml.dll",
+    ]
+    preloaded = []
+    for dep_name in _GGML_LOAD_ORDER:
+        dep_path = backend_dir / dep_name
+        if dep_path.exists():
+            try:
+                ctypes.CDLL(str(dep_path), winmode=0)
+                preloaded.append(dep_name)
+            except Exception as exc:
+                print(f"[qwentts-adapter] note: could not pre-load {dep_name}: {exc}", flush=True)
+    if preloaded:
+        print(f"[qwentts-adapter] pre-loaded dependencies: {', '.join(preloaded)}", flush=True)
 
     dll_path = str(backend_dir / "qwen.dll")
     print(f"[qwentts-adapter] loading qwen.dll from {dll_path}", flush=True)
@@ -131,7 +158,7 @@ def _load_qwen_dll(bin_base: Path):
         return ctypes.CDLL(dll_path, winmode=0)
     except Exception:
         old_cwd = Path.cwd()
-        os.chdir(str(backend_dir))
+        os.chdir(abs_dir)
         try:
             return ctypes.CDLL("qwen.dll")
         finally:

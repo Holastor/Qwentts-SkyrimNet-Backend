@@ -317,7 +317,7 @@ def main():
             use_fa=config.USE_FA, clamp_fp16=config.CLAMP_FP16,
         )
     except Exception as exc:
-        _log(f"WARNING: failed to initialize QwenTTS persistent backend (model files might be missing): {exc}", flush=True)
+        _log(f"WARNING: failed to initialize QwenTTS persistent backend (model files might be missing): {exc}")
 
     from src.services.cache import _precache_all_voices
     import threading as _thr
