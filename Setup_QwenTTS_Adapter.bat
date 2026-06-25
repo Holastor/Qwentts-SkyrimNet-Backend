@@ -86,6 +86,45 @@
     :: -----------------------------------------------------------------
     echo [5/7] Checking QwenTTS native backend (bin\)...
 
+    :: Check if bin\qwen.dll exists. If not, trigger automated download.
+    if not exist "bin\qwen.dll" (
+        echo        Native binaries ^(bin\^) missing.
+        echo        Downloading latest stable bin.zip from GitHub...
+        
+        :: Attempt 1: Using built-in Windows curl
+        curl -L -o bin_temp.zip "https://github.com/Holastor/Qwentts-SkyrimNet-Backend/releases/download/binaries-latest/bin.zip"
+        
+        :: Attempt 2: PowerShell fallback if curl is missing or fails
+        if errorlevel 1 (
+            echo        curl failed or missing. Trying fallback via PowerShell...
+            powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://github.com/Holastor/Qwentts-SkyrimNet-Backend/releases/download/binaries-latest/bin.zip' -OutFile 'bin_temp.zip'" >nul 2>&1
+        )
+        
+        :: Final check if both download vectors failed
+        if errorlevel 1 (
+            echo.
+            echo        ERROR: Failed to download native binaries automatically.
+            echo               Please download it manually from:
+            echo               https://github.com/Holastor/Qwentts-SkyrimNet-Backend/releases/tag/binaries-latest
+            echo               and unpack the 'bin' folder to the project root.
+            goto fail
+        )
+        
+        echo        Unpacking binaries...
+        :: Extracting the zip file natively via tar
+        tar -xf bin_temp.zip
+        if errorlevel 1 (
+            echo        ERROR: Failed to unpack bin.zip. Make sure you have tar installed.
+            del bin_temp.zip >nul 2>&1
+            goto fail
+        )
+        
+        :: Cleanup the temporary downloaded archive
+        del bin_temp.zip >nul 2>&1
+        echo        Binaries successfully installed!
+        echo.
+    )
+
     set "BACKEND_DIR="
     if exist "bin\qwen.dll"               set "BACKEND_DIR=bin"
     if exist "bin\qwentts_CPU\qwen.dll"   set "BACKEND_DIR=bin\qwentts_CPU"
