@@ -206,17 +206,15 @@ class PersistentQwenTTSBackend:
 
             if status == QT_STATUS_INVALID_PARAMS and "ref_spk_dim" in msg and "mismatches" in msg and ref_audio_path:
                 _log("WARNING: Detected speaker embedding dimension mismatch in voice cache!")
-                lang_code = config._get_lang_code(lang)
-                cache_key = f"{lang_code}:{str(ref_audio_path.resolve())}"
+                cache_key = str(ref_audio_path.resolve())
 
                 from src.services.cache import _VOICE_CACHE, RVQ_CACHE_DIR
                 if cache_key in _VOICE_CACHE:
                     del _VOICE_CACHE[cache_key]
 
                 stem = ref_audio_path.stem
-                lang_cache_dir = RVQ_CACHE_DIR / lang_code
-                rvq_path = lang_cache_dir / f"{stem}.rvq"
-                spk_path = lang_cache_dir / f"{stem}.spk"
+                rvq_path = RVQ_CACHE_DIR / f"{stem}.rvq"
+                spk_path = RVQ_CACHE_DIR / f"{stem}.spk"
 
                 try:
                     rvq_path.unlink(missing_ok=True)

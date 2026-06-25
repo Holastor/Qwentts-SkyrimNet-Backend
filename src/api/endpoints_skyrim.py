@@ -37,10 +37,9 @@ def _safe_output_name(save_path: Optional[str]) -> str:
     return f"qwentts_{timestamp}.wav"
 
 
-def _write_silence_file(save_path: Optional[str], lang_code: str = "en_US") -> Path:
-    lang_output_dir = OUTPUT_DIR / lang_code
-    lang_output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = lang_output_dir / _safe_output_name(save_path)
+def _write_silence_file(save_path: Optional[str]) -> Path:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = OUTPUT_DIR / _safe_output_name(save_path)
     output_path.write_bytes(generate_silence_wav())
     return output_path
 
@@ -201,8 +200,7 @@ async def _extract_fields_and_save_runtime_uploads(request: Request) -> tuple[Di
         else:
             target_name = _safe_file_name(upload_name, f"{key}.wav")
 
-        lang_code = _get_lang_code(fields.get("language"))
-        target_dir = RUNTIME_SPEAKERS_DIR / lang_code
+        target_dir = RUNTIME_SPEAKERS_DIR
         target_path = target_dir / target_name
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
@@ -229,14 +227,12 @@ async def tts_to_audio(payload: TtsRequest) -> FileResponse:
     _log(f"language: {payload.language}")
     _log(f"save_path: {payload.save_path}")
 
-    lang_code = _get_lang_code(payload.language)
-    lang_output_dir = OUTPUT_DIR / lang_code
-    lang_output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = lang_output_dir / _safe_output_name(payload.save_path)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = OUTPUT_DIR / _safe_output_name(payload.save_path)
 
     if payload.text == "ping":
         _log("ping received, returning silence WAV")
-        output_path = _write_silence_file(payload.save_path, lang_code=lang_code)
+        output_path = _write_silence_file(payload.save_path)
     else:
         gen_text, _ending_pause_appended = _prepare_qwentts_gen_text(payload.text)
         voice_ref = _resolve_voice_ref(payload.speaker_wav, gen_text)
@@ -250,13 +246,13 @@ async def tts_to_audio(payload: TtsRequest) -> FileResponse:
                 output_path = generated_path
             else:
                 _log("failure: returning silence WAV fallback")
-                output_path = _write_silence_file(payload.save_path, lang_code=lang_code)
+                output_path = _write_silence_file(payload.save_path)
         elif voice_ref:
             _log("failure: persistent backend is not loaded, returning silence WAV fallback")
-            output_path = _write_silence_file(payload.save_path, lang_code=lang_code)
+            output_path = _write_silence_file(payload.save_path)
         else:
             _log("failure: missing voice ref, returning silence WAV fallback")
-            output_path = _write_silence_file(payload.save_path, lang_code=lang_code)
+            output_path = _write_silence_file(payload.save_path)
 
     _log(f"output path: {output_path}")
 

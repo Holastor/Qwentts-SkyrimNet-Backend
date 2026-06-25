@@ -152,38 +152,76 @@ def _get_lang_code(user_lang: Optional[str] = None) -> str:
 
 
 def _get_voice_design_path() -> Path:
-    """Get the dynamic path to voice_design_<lang_code>.json."""
-    lang_code = _get_lang_code()
+    """Get the path to voice_design.json."""
     refs_dir = VOICES_DIR / "voice_refs"
     refs_dir.mkdir(parents=True, exist_ok=True)
-    return refs_dir / f"voice_design_{lang_code}.json"
+    path = refs_dir / "voice_design.json"
+    if not path.exists():
+        lang_code = _get_lang_code()
+        lang_specific = refs_dir / f"voice_design_{lang_code}.json"
+        if lang_specific.exists():
+            import shutil
+            try:
+                shutil.copy(lang_specific, path)
+                _log(f"Migrated language-specific design database {lang_specific.name} to {path}")
+            except Exception as exc:
+                _log(f"WARNING: failed to copy {lang_specific.name} to {path}: {exc}")
+    return path
 
 
 def _get_voice_refs_path() -> Path:
-    """Get the dynamic path to voice_refs_<lang_code>.json, migrating global database if necessary."""
-    lang_code = _get_lang_code()
+    """Get the path to voice_refs.json, migrating existing localized databases if necessary."""
     refs_dir = VOICES_DIR / "voice_refs"
     refs_dir.mkdir(parents=True, exist_ok=True)
-    path = refs_dir / f"voice_refs_{lang_code}.json"
+    path = refs_dir / "voice_refs.json"
     if not path.exists():
-        global_path = refs_dir / "voice_refs.json"
-        if global_path.exists():
+        # Try migrating from language-specific file if it exists (e.g. voice_refs_ru_RU.json)
+        lang_code = _get_lang_code()
+        lang_specific = refs_dir / f"voice_refs_{lang_code}.json"
+        if lang_specific.exists():
             import shutil
             try:
-                shutil.copy(global_path, path)
-                _log(f"Migrated global voice_refs.json to language-specific database: {path}")
+                shutil.copy(lang_specific, path)
+                _log(f"Migrated language-specific database {lang_specific.name} to {path}")
             except Exception as exc:
-                _log(f"WARNING: failed to copy template voice_refs.json to {path}: {exc}")
+                _log(f"WARNING: failed to copy {lang_specific.name} to {path}: {exc}")
         else:
+            # Fall back to template voice_refs.json.example
             example_path = refs_dir / "voice_refs.json.example"
             if example_path.exists():
                 import shutil
                 try:
                     shutil.copy(example_path, path)
-                    _log(f"Initialized language-specific database from example: {path}")
+                    _log(f"Initialized voice refs database from example: {path}")
                 except Exception as exc:
                     _log(f"WARNING: failed to copy example to {path}: {exc}")
     return path
+
+
+def _resolve_path(path_text: str) -> Path:
+    path = Path(path_text)
+    if path.is_absolute():
+        if path.exists():
+            return path
+        path = Path(path.name)
+    resolved = PROJECT_ROOT / path
+    if resolved.exists():
+        return resolved
+    # Try under Voices/ directory
+    voices_resolved = VOICES_DIR / path
+    if voices_resolved.exists():
+        return voices_resolved
+    if len(path.parts) >= 2 and path.parts[0] in ("qwen_speakers", "runtime_speakers"):
+        resolved_with_subdir = VOICES_DIR / path.parts[0] / Path(*path.parts[1:])
+        if resolved_with_subdir.exists():
+            return resolved_with_subdir
+    # Try basename only under Voices/qwen_speakers/ and runtime_speakers/
+    if len(path.parts) == 1:
+        for subdir in ("qwen_speakers", "runtime_speakers"):
+            resolved_with_subdir = VOICES_DIR / subdir / path
+            if resolved_with_subdir.exists():
+                return resolved_with_subdir
+    return resolved
 
 
 # ---------------------------------------------------------------------------
@@ -214,32 +252,7 @@ def _save_settings() -> None:
         _log(f"WARNING: failed to save settings: {exc}")
 
 
-def _resolve_path(path_text: str) -> Path:
-    path = Path(path_text)
-    if path.is_absolute():
-        if path.exists():
-            return path
-        path = Path(path.name)
-    resolved = PROJECT_ROOT / path
-    if resolved.exists():
-        return resolved
-    # Try under Voices/ directory
-    voices_resolved = VOICES_DIR / path
-    if voices_resolved.exists():
-        return voices_resolved
-    if len(path.parts) >= 2 and path.parts[0] in ("qwen_speakers", "runtime_speakers"):
-        lang_code = _get_lang_code()
-        lang_resolved = VOICES_DIR / path.parts[0] / lang_code / Path(*path.parts[1:])
-        if lang_resolved.exists():
-            return lang_resolved
-    # Try basename only under Voices/qwen_speakers/<lang>
-    if len(path.parts) == 1:
-        lang_code = _get_lang_code()
-        for subdir in ("qwen_speakers", "runtime_speakers"):
-            lang_resolved = VOICES_DIR / subdir / lang_code / path
-            if lang_resolved.exists():
-                return lang_resolved
-    return resolved
+
 
 
 def _apply_settings() -> None:

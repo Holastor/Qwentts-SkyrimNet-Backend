@@ -452,8 +452,7 @@ def import_voice_samples(
 
 
 def _run_voice_import(base_url: str, selection_mode: str, force: bool, preserve_existing: bool, design_mode: bool = False) -> list[dict]:
-    lang_code = config._get_lang_code()
-    speakers_dir = VOICES_DIR / "qwen_speakers" / lang_code
+    speakers_dir = VOICES_DIR / "qwen_speakers"
     speakers_dir.mkdir(parents=True, exist_ok=True)
     refs_path = config._get_voice_refs_path()
 

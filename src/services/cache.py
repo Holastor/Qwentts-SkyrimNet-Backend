@@ -99,16 +99,14 @@ def _ensure_voice_cache(
 ) -> VoiceCache | None:
     """Return a cached VoiceCache for *ref_audio*, encoding it first if needed."""
     wav_path = _resolve_path(ref_audio)
-    lang_code = config._get_lang_code(user_lang)
-    key = f"{lang_code}:{str(wav_path.resolve())}"
+    key = str(wav_path.resolve())
 
     if key in _VOICE_CACHE:
         return _VOICE_CACHE[key]
 
     stem = wav_path.stem
-    lang_cache_dir = RVQ_CACHE_DIR / lang_code
-    rvq_path = lang_cache_dir / f"{stem}.rvq"
-    spk_path = lang_cache_dir / f"{stem}.spk"
+    rvq_path = RVQ_CACHE_DIR / f"{stem}.rvq"
+    spk_path = RVQ_CACHE_DIR / f"{stem}.spk"
     txt_path = wav_path.with_suffix(".txt")
 
     if not wav_path.exists():
@@ -126,10 +124,10 @@ def _ensure_voice_cache(
     try:
         cache = VoiceCache(rvq_path, spk_path, txt_path, fallback_ref_text=fallback_ref_text)
         _VOICE_CACHE[key] = cache
-        _log(f"voice cached [{lang_code}]: {stem} ({cache.ref_T} frames, spk_dim={cache.spk_dim})")
+        _log(f"voice cached: {stem} ({cache.ref_T} frames, spk_dim={cache.spk_dim})")
         return cache
     except Exception as exc:
-        _log(f"WARNING: failed to load voice cache for {stem} under {lang_code}: {exc}")
+        _log(f"WARNING: failed to load voice cache for {stem}: {exc}")
         return None
 
 
@@ -146,9 +144,7 @@ def _precache_all_voices() -> None:
         _log("voice caching already in progress, skipping duplicate thread")
         return
     try:
-        lang_code = config._get_lang_code()
-        lang_cache_dir = RVQ_CACHE_DIR / lang_code
-        lang_cache_dir.mkdir(parents=True, exist_ok=True)
+        RVQ_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
         # First load cached voices registered in voice_refs, even if WAV file is not present on disk
         try:
@@ -160,10 +156,10 @@ def _precache_all_voices() -> None:
                     continue
                 wav_path = _resolve_path(ref_audio)
                 stem = wav_path.stem
-                rvq_path = lang_cache_dir / f"{stem}.rvq"
-                spk_path = lang_cache_dir / f"{stem}.spk"
+                rvq_path = RVQ_CACHE_DIR / f"{stem}.rvq"
+                spk_path = RVQ_CACHE_DIR / f"{stem}.spk"
                 if rvq_path.exists() and spk_path.exists():
-                    cache_key = f"{lang_code}:{str(wav_path.resolve())}"
+                    cache_key = str(wav_path.resolve())
                     if cache_key not in _VOICE_CACHE:
                         try:
                             cache = VoiceCache(rvq_path, spk_path, wav_path.with_suffix(".txt"), fallback_ref_text=ref_text)
@@ -174,21 +170,21 @@ def _precache_all_voices() -> None:
             _log(f"WARNING: failed preloading cached voice references: {exc}")
 
         # Then scan directories for actual WAVs to update/encode
-        for d in (VOICES_DIR / "qwen_speakers" / lang_code, RUNTIME_SPEAKERS_DIR / lang_code):
+        for d in (VOICES_DIR / "qwen_speakers", RUNTIME_SPEAKERS_DIR):
             if not d.exists():
                 continue
             for wav in sorted(d.glob("*.wav")):
                 stem = wav.stem
-                rvq_path = lang_cache_dir / f"{stem}.rvq"
-                spk_path = lang_cache_dir / f"{stem}.spk"
+                rvq_path = RVQ_CACHE_DIR / f"{stem}.rvq"
+                spk_path = RVQ_CACHE_DIR / f"{stem}.spk"
                 if not rvq_path.exists() or not spk_path.exists():
                     _encode_voice_to_rvq(wav, rvq_path, spk_path, wav.with_suffix(".txt"))
                 try:
                     cache = VoiceCache(rvq_path, spk_path, wav.with_suffix(".txt"))
-                    key = f"{lang_code}:{str(wav.resolve())}"
+                    key = str(wav.resolve())
                     _VOICE_CACHE[key] = cache
                 except Exception:
                     pass
-        _log(f"voice cache loaded for language {lang_code}: {len(_VOICE_CACHE)} voices")
+        _log(f"voice cache loaded: {len(_VOICE_CACHE)} voices")
     finally:
         _precache_lock.release()
