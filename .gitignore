@@ -6,6 +6,7 @@ bin/ggml.dll
 bin/qwen-codec.exe
 bin/qwen-tts.exe
 bin/qwen.dll
+bin/
 *.zip
 *.pyc
 src/local_settings/qwen_settings.json
