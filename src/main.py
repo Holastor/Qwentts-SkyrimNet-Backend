@@ -319,9 +319,10 @@ def main():
     except Exception as exc:
         _log(f"WARNING: failed to initialize QwenTTS persistent backend (model files might be missing): {exc}")
 
-    from src.services.cache import _precache_all_voices
-    import threading as _thr
-    _thr.Thread(target=_precache_all_voices, daemon=True).start()
+    if config.USE_VOICE_CACHE:
+        from src.services.cache import _precache_all_voices
+        import threading as _thr
+        _thr.Thread(target=lambda: _precache_all_voices(encode_missing=False), daemon=True).start()
 
     cleanup_thread = _start_cleanup_thread() if config.CLEANUP_ENABLED else None
     try:

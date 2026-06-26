@@ -92,12 +92,25 @@ def _encode_voice_to_rvq(wav_path: Path, rvq_path: Path, spk_path: Path, txt_pat
         return False
 
 
+_CACHE_PROGRESS = {
+    "running": False,
+    "total": 0,
+    "completed": 0,
+    "remaining": 0,
+    "elapsed_sec": 0,
+    "eta_sec": 0,
+    "current_file": "",
+}
+
+_cache_thread_lock = threading.Lock()
+
+
 def _ensure_voice_cache(
     ref_audio: str,
     user_lang: Optional[str] = None,
     fallback_ref_text: Optional[str] = None
 ) -> VoiceCache | None:
-    """Return a cached VoiceCache for *ref_audio*, encoding it first if needed."""
+    """Return a cached VoiceCache for *ref_audio* if exists, but never encode it on demand."""
     wav_path = _resolve_path(ref_audio)
     key = str(wav_path.resolve())
 
@@ -109,17 +122,9 @@ def _ensure_voice_cache(
     spk_path = RVQ_CACHE_DIR / f"{stem}.spk"
     txt_path = wav_path.with_suffix(".txt")
 
-    if not wav_path.exists():
-        if rvq_path.exists() and spk_path.exists():
-            _log(f"ref_audio WAV not found: {wav_path}. But cache files exist, loading from cache.")
-        else:
-            _log(f"WARNING: ref_audio not found for caching: {wav_path}")
-            return None
-    else:
-        if not rvq_path.exists() or not spk_path.exists() or \
-           wav_path.stat().st_mtime > rvq_path.stat().st_mtime:
-            if not _encode_voice_to_rvq(wav_path, rvq_path, spk_path, txt_path):
-                return None
+    if not rvq_path.exists() or not spk_path.exists() or \
+       (wav_path.exists() and wav_path.stat().st_mtime > rvq_path.stat().st_mtime):
+        return None
 
     try:
         cache = VoiceCache(rvq_path, spk_path, txt_path, fallback_ref_text=fallback_ref_text)
@@ -138,8 +143,8 @@ def _resolve_path(path_text: str) -> Path:
 _precache_lock = threading.Lock()
 
 
-def _precache_all_voices() -> None:
-    """Encode every voice WAV in qwen_speakers/ and runtime_speakers/."""
+def _precache_all_voices(encode_missing: bool = False) -> None:
+    """Load every pre-existing voice cache, and optionally encode missing ones."""
     if not _precache_lock.acquire(blocking=False):
         _log("voice caching already in progress, skipping duplicate thread")
         return
@@ -177,8 +182,13 @@ def _precache_all_voices() -> None:
                 stem = wav.stem
                 rvq_path = RVQ_CACHE_DIR / f"{stem}.rvq"
                 spk_path = RVQ_CACHE_DIR / f"{stem}.spk"
-                if not rvq_path.exists() or not spk_path.exists():
-                    _encode_voice_to_rvq(wav, rvq_path, spk_path, wav.with_suffix(".txt"))
+                if not rvq_path.exists() or not spk_path.exists() or \
+                   wav.stat().st_mtime > rvq_path.stat().st_mtime:
+                    if encode_missing:
+                        _encode_voice_to_rvq(wav, rvq_path, spk_path, wav.with_suffix(".txt"))
+                    else:
+                        if not rvq_path.exists() or not spk_path.exists():
+                            continue
                 try:
                     cache = VoiceCache(rvq_path, spk_path, wav.with_suffix(".txt"))
                     key = str(wav.resolve())
@@ -188,3 +198,105 @@ def _precache_all_voices() -> None:
         _log(f"voice cache loaded: {len(_VOICE_CACHE)} voices")
     finally:
         _precache_lock.release()
+
+
+def _start_cache_encoding_thread() -> bool:
+    """Start background cache encoding process for all voices."""
+    global _cache_thread_lock
+    if not _cache_thread_lock.acquire(blocking=False):
+        return False
+
+    def run():
+        import time
+        from src.services.importer import VOICE_REFS
+        global _CACHE_PROGRESS
+
+        try:
+            # Gather all WAVs
+            wav_paths = []
+
+            # 1. WAVs from voice refs
+            for key, ref in list(VOICE_REFS.items()):
+                ref_audio = ref.get("ref_audio")
+                if not ref_audio:
+                    continue
+                wav_path = _resolve_path(ref_audio)
+                if wav_path.exists() and wav_path not in wav_paths:
+                    wav_paths.append(wav_path)
+
+            # 2. WAVs from directories
+            for d in (VOICES_DIR / "qwen_speakers", RUNTIME_SPEAKERS_DIR):
+                if not d.exists():
+                    continue
+                for wav in d.glob("*.wav"):
+                    if wav.exists() and wav not in wav_paths:
+                        wav_paths.append(wav)
+
+            # Filter only those that actually need encoding
+            to_encode = []
+            for wav in wav_paths:
+                stem = wav.stem
+                rvq_path = RVQ_CACHE_DIR / f"{stem}.rvq"
+                spk_path = RVQ_CACHE_DIR / f"{stem}.spk"
+                if not rvq_path.exists() or not spk_path.exists() or \
+                   wav.stat().st_mtime > rvq_path.stat().st_mtime:
+                    to_encode.append(wav)
+
+            total = len(to_encode)
+            if total == 0:
+                _CACHE_PROGRESS = {
+                    "running": False,
+                    "total": 0,
+                    "completed": 0,
+                    "remaining": 0,
+                    "elapsed_sec": 0,
+                    "eta_sec": 0,
+                    "current_file": "",
+                }
+                # Reload existing
+                _precache_all_voices(encode_missing=False)
+                return
+
+            _CACHE_PROGRESS = {
+                "running": True,
+                "total": total,
+                "completed": 0,
+                "remaining": total,
+                "elapsed_sec": 0,
+                "eta_sec": 0,
+                "current_file": "",
+            }
+
+            start_time = time.time()
+            for idx, wav in enumerate(to_encode):
+                _CACHE_PROGRESS["current_file"] = wav.name
+                _CACHE_PROGRESS["remaining"] = total - idx
+
+                stem = wav.stem
+                rvq_path = RVQ_CACHE_DIR / f"{stem}.rvq"
+                spk_path = RVQ_CACHE_DIR / f"{stem}.spk"
+                txt_path = wav.with_suffix(".txt")
+
+                _encode_voice_to_rvq(wav, rvq_path, spk_path, txt_path)
+
+                _CACHE_PROGRESS["completed"] = idx + 1
+                elapsed = time.time() - start_time
+                _CACHE_PROGRESS["elapsed_sec"] = int(elapsed)
+
+                # Estimate remaining time
+                avg_time_per_file = elapsed / (idx + 1)
+                remaining_files = total - (idx + 1)
+                _CACHE_PROGRESS["eta_sec"] = int(avg_time_per_file * remaining_files)
+
+            _CACHE_PROGRESS["running"] = False
+            _CACHE_PROGRESS["remaining"] = 0
+            _CACHE_PROGRESS["current_file"] = ""
+
+            # Reload all into memory cache
+            _precache_all_voices(encode_missing=False)
+        finally:
+            _cache_thread_lock.release()
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return True

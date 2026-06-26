@@ -160,7 +160,9 @@ class PersistentQwenTTSBackend:
                 _log("ERROR: Custom voice requested, but the active model is a voicedesign model which requires --instruct!")
                 return None
             # Try ABI v2 cached path first.
-            vc = _ensure_voice_cache(ref_audio_str, lang, fallback_ref_text=ref_text)
+            vc = None
+            if config.USE_VOICE_CACHE:
+                vc = _ensure_voice_cache(ref_audio_str, lang, fallback_ref_text=ref_text)
             if vc is not None and vc.ref_text is not None:
                 _log("using cached voice (spk + rvq, ABI v2)")
                 params.ref_spk_emb = ctypes.cast(vc.spk_array, POINTER(c_float))

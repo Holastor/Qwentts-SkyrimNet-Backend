@@ -54,6 +54,7 @@ APPEND_ENDING_PAUSE     = True
 ENDING_PAUSE_TEXT       = "..."
 MIN_OUTPUT_DURATION     = 0.0
 DEBUG_SAVE_TEXT         = True
+USE_VOICE_CACHE         = True
 
 # Cleanup
 CLEANUP_ENABLED          = True
@@ -95,6 +96,7 @@ _SETTINGS: Dict[str, Any] = {
     "backend": "qwentts_CPU",
     "active_talker_name": "qwen-talker-1.7b-base-Q4_K_M.gguf",
     "active_codec_name":  "qwen-tokenizer-12hz-F32.gguf",
+    "use_voice_cache": True,
 }
 
 
@@ -269,6 +271,7 @@ def _apply_settings() -> None:
     global USE_FA, CLAMP_FP16, CODEC_CHUNK_SEC, CODEC_LEFT_CONTEXT_SEC
     global MAX_TEXT_CHARS, APPEND_ENDING_PAUSE, ENDING_PAUSE_TEXT
     global MIN_OUTPUT_DURATION, DEBUG_SAVE_TEXT, TALKER_PATH, CODEC_PATH
+    global USE_VOICE_CACHE
 
     LANG                = str(s.get("lang", LANG))
     SEED                = int(s.get("seed", SEED))
@@ -293,13 +296,15 @@ def _apply_settings() -> None:
     DEBUG_SAVE_TEXT     = bool(s.get("debug_save_text", DEBUG_SAVE_TEXT))
     TALKER_PATH         = _resolve_path(str(s.get("talker_path", str(TALKER_PATH))))
     CODEC_PATH          = _resolve_path(str(s.get("codec_path", str(CODEC_PATH))))
+    USE_VOICE_CACHE     = bool(s.get("use_voice_cache", USE_VOICE_CACHE))
 
     # Reload voice refs database and start background caching for the active language
     try:
         from src.services.importer import reload_voice_refs
-        from src.services.cache import _precache_all_voices
         reload_voice_refs()
-        import threading as _thr
-        _thr.Thread(target=_precache_all_voices, daemon=True).start()
+        if USE_VOICE_CACHE:
+            from src.services.cache import _precache_all_voices
+            import threading as _thr
+            _thr.Thread(target=lambda: _precache_all_voices(encode_missing=False), daemon=True).start()
     except Exception as exc:
         _log(f"WARNING: failed to reload voice refs/precache on settings update: {exc}")

@@ -228,6 +228,7 @@ async def settings_page(request: Request) -> HTMLResponse:
         "clamp_fp16": "Clamp hidden states and attention V to FP16 range. Only needed on older (pre-Ampere) CUDA GPUs.",
         "append_ending_pause": "Automatically append '...' to the end of text for a more natural trailing pause.",
         "debug_save_text": "Save the processed text sent to the model to disk (under output_temp/qwentts_debug_text/).",
+        "use_voice_cache": "Pre-encode voice references to .rvq/.spk format for faster inference. Turn off to run dynamically.",
     }
 
     form_fields = [
@@ -268,6 +269,7 @@ async def settings_page(request: Request) -> HTMLResponse:
         ("clamp_fp16", "Clamp FP16", s.get("clamp_fp16", False)),
         ("append_ending_pause", "Append Ending Pause", s.get("append_ending_pause", True)),
         ("debug_save_text", "Debug Save Text", s.get("debug_save_text", True)),
+        ("use_voice_cache", "Use Voice Cache", s.get("use_voice_cache", True)),
     ]
     bool_html = ""
     for fid, label, fval in bool_fields:
@@ -769,6 +771,56 @@ async def voices_api_import_status(request: Request) -> Dict[str, Any]:
     if importer._IMPORT_STATUS.get("running") and importer._IMPORT_LOGGER:
         status["log"] = importer._IMPORT_LOGGER.get_realtime_log()
     return status
+
+
+@router.post("/voices/api/cache/encode")
+async def voices_api_cache_encode(request: Request) -> Dict[str, Any]:
+    _require_settings_api(request)
+    from src.services.cache import _start_cache_encoding_thread
+    success = _start_cache_encoding_thread()
+    if not success:
+        raise HTTPException(status_code=400, detail="Cache encoding is already running")
+    return {"success": True}
+
+
+@router.get("/voices/api/cache/progress")
+async def voices_api_cache_progress(request: Request) -> Dict[str, Any]:
+    _require_settings_api(request)
+    from src.services.cache import _CACHE_PROGRESS
+    return dict(_CACHE_PROGRESS)
+
+
+import os
+import sys
+import subprocess
+import time
+
+def delay_shutdown():
+    time.sleep(0.5)
+    os._exit(0)
+
+def delay_restart():
+    time.sleep(0.5)
+    from src.config import PROJECT_ROOT
+    args = [sys.executable] + (sys.argv if sys.argv else ["qwentts_adapter_server.py"])
+    subprocess.Popen(args, cwd=str(PROJECT_ROOT))
+    os._exit(0)
+
+
+@router.post("/server/shutdown")
+async def server_shutdown(request: Request) -> Dict[str, Any]:
+    _require_settings_api(request)
+    _log("Server shutdown requested via API")
+    threading.Thread(target=delay_shutdown, daemon=True).start()
+    return {"success": True}
+
+
+@router.post("/server/restart")
+async def server_restart(request: Request) -> Dict[str, Any]:
+    _require_settings_api(request)
+    _log("Server restart requested via API")
+    threading.Thread(target=delay_restart, daemon=True).start()
+    return {"success": True}
 
 
 @router.post("/reload-voice-refs")

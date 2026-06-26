@@ -16,6 +16,11 @@ const i18n = {
     subtalker_collapsible: "Дополнительно: Параметры Code Predictor (Sub-Talker)",
     btn_save_settings: "Сохранить настройки",
     section_models_title: "Модели",
+    section_cache_title: "Кодирование и Кэширование голосов",
+    section_cache_desc: "Предварительное кодирование эталонных WAV-файлов в оптимизированные представления (SPK + RVQ) для ускорения последующей генерации. Этот процесс сильно нагружает процессор и запускается вручную.",
+    btn_start_cache: "⚡ Кодировать голоса (Кэш)",
+    btn_shutdown: "Выключить",
+    btn_restart_server: "Перезапуск",
     btn_refresh: "↻ Обновить",
     talker_lm_title: "Talker LM (Языковая модель)",
     talker_lm_desc: "Языковая модель, которая генерирует коды речи из текста.",
@@ -88,6 +93,11 @@ const i18n = {
     subtalker_collapsible: "Advanced: Code Predictor (Sub-Talker) Parameters",
     btn_save_settings: "Save Settings",
     section_models_title: "Models",
+    section_cache_title: "Pre-encode / Cache Voices",
+    section_cache_desc: "Pre-encode reference WAV files into optimized speech embeddings (SPK + RVQ) to speed up future generations. This is a CPU-heavy task and can be manually triggered.",
+    btn_start_cache: "⚡ Pre-encode / Cache Voices",
+    btn_shutdown: "Shutdown",
+    btn_restart_server: "Restart",
     btn_refresh: "↻ Refresh",
     talker_lm_title: "Talker LM",
     talker_lm_desc: "The language model that generates speech tokens.",
@@ -1108,6 +1118,15 @@ fetch('/voices/api/import/status').then(r => r.json()).then(res => {
   }
 });
 
+fetch('/voices/api/cache/progress').then(r => r.json()).then(res => {
+  if (res.running) {
+    document.getElementById('start-cache-btn').disabled = true;
+    document.getElementById('cache-progress-container').style.display = 'block';
+    if (cacheInterval) clearInterval(cacheInterval);
+    cacheInterval = setInterval(pollCacheStatus, 1000);
+  }
+});
+
 // Интерактивный туториал
 const tutorialSteps = [
   { title: "", target: null, onShow: () => switchTab('settings'), content: "" },
@@ -1197,3 +1216,160 @@ async function deleteModel(name) {
 
 // Explicitly export functions to the window object to ensure they are available in global scope for HTML onclick handlers
 window.deleteModel = deleteModel;
+
+let cacheInterval = null;
+
+function formatTime(seconds) {
+  if (isNaN(seconds) || seconds < 0) return '0s';
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m > 0) {
+    return `${m}m ${s}s`;
+  }
+  return `${s}s`;
+}
+
+async function startCacheEncoding() {
+  const isRu = (currentLang === 'ru');
+  try {
+    const res = await postJson('/voices/api/cache/encode');
+    if (res.success) {
+      document.getElementById('start-cache-btn').disabled = true;
+      document.getElementById('cache-progress-container').style.display = 'block';
+      document.getElementById('cache-progress-status').textContent = isRu ? 'Подготовка к кодированию...' : 'Preparing to encode...';
+      document.getElementById('cache-progress-bar').style.width = '0%';
+      document.getElementById('cache-progress-percentage').textContent = '0%';
+      document.getElementById('cache-progress-counts').textContent = isRu ? 'Подсчет файлов...' : 'Calculating files...';
+      document.getElementById('cache-progress-time').textContent = '';
+      
+      if (cacheInterval) clearInterval(cacheInterval);
+      cacheInterval = setInterval(pollCacheStatus, 1000);
+    }
+  } catch (err) {
+    alert((isRu ? 'Ошибка при запуске кодирования: ' : 'Failed to start encoding: ') + err.message);
+  }
+}
+
+async function pollCacheStatus() {
+  try {
+    const res = await fetch('/voices/api/cache/progress').then(r => r.json());
+    const isRu = (currentLang === 'ru');
+    
+    if (res.running) {
+      document.getElementById('start-cache-btn').disabled = true;
+      document.getElementById('cache-progress-container').style.display = 'block';
+      
+      const total = res.total || 0;
+      const completed = res.completed || 0;
+      const remaining = res.remaining || 0;
+      const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+      
+      document.getElementById('cache-progress-bar').style.width = percent + '%';
+      document.getElementById('cache-progress-percentage').textContent = percent + '%';
+      
+      document.getElementById('cache-progress-status').textContent = isRu 
+        ? `Кодирование: ${res.current_file || ''}`
+        : `Encoding: ${res.current_file || ''}`;
+        
+      document.getElementById('cache-progress-counts').textContent = isRu
+        ? `Файлов: ${completed} / ${total} (Осталось: ${remaining})`
+        : `Files: ${completed} / ${total} (Remaining: ${remaining})`;
+        
+      const elapsedStr = formatTime(res.elapsed_sec);
+      const etaStr = formatTime(res.eta_sec);
+      document.getElementById('cache-progress-time').textContent = isRu
+        ? `Прошло: ${elapsedStr} | Осталось: ${etaStr}`
+        : `Elapsed: ${elapsedStr} | Remaining: ${etaStr}`;
+    } else {
+      if (cacheInterval) {
+        clearInterval(cacheInterval);
+        cacheInterval = null;
+      }
+      document.getElementById('start-cache-btn').disabled = false;
+      
+      if (res.total > 0 && res.completed === res.total) {
+        // Complete
+        document.getElementById('cache-progress-bar').style.width = '100%';
+        document.getElementById('cache-progress-percentage').textContent = '100%';
+        document.getElementById('cache-progress-status').textContent = isRu ? 'Кодирование успешно завершено!' : 'Encoding completed successfully!';
+        document.getElementById('cache-progress-counts').textContent = isRu ? `Обработано: ${res.completed} из ${res.total}` : `Processed: ${res.completed} / ${res.total}`;
+        document.getElementById('cache-progress-time').textContent = isRu
+          ? `Всего затрачено: ${formatTime(res.elapsed_sec)}`
+          : `Total time: ${formatTime(res.elapsed_sec)}`;
+      } else {
+        // Not running and either failed or nothing to encode
+        document.getElementById('cache-progress-container').style.display = 'none';
+        if (res.total === 0 && res.completed === 0) {
+          alert(isRu ? 'Все новые голосовые файлы уже закодированы!' : 'All new voice files are already cached!');
+        }
+      }
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+window.startCacheEncoding = startCacheEncoding;
+
+async function shutdownServer() {
+  const isRu = (currentLang === 'ru');
+  const confirmMsg = isRu 
+    ? 'Вы действительно хотите выключить сервер? После этого панель управления станет недоступна.'
+    : 'Are you sure you want to shut down the server? The control panel will become offline.';
+  if (!confirm(confirmMsg)) return;
+
+  try {
+    const res = await postJson('/server/shutdown');
+    if (res.success) {
+      alert(isRu ? 'Сигнал на выключение отправлен. Сервер останавливается...' : 'Shutdown signal sent. Server is stopping...');
+      document.body.style.opacity = '0.5';
+      document.body.style.pointerEvents = 'none';
+    }
+  } catch (err) {
+    alert((isRu ? 'Ошибка при выключении: ' : 'Shutdown error: ') + err.message);
+  }
+}
+
+async function restartServer() {
+  const isRu = (currentLang === 'ru');
+  const confirmMsg = isRu 
+    ? 'Вы действительно хотите перезагрузить сервер? Это разорвет все активные соединения на пару секунд.'
+    : 'Are you sure you want to restart the server? This will temporarily interrupt active connections.';
+  if (!confirm(confirmMsg)) return;
+
+  try {
+    const res = await postJson('/server/restart');
+    if (res.success) {
+      alert(isRu ? 'Сигнал на перезапуск отправлен. Пожалуйста, подождите 3-5 секунд и страница перезагрузится автоматически.' : 'Restart signal sent. Please wait 3-5 seconds; the page will reload automatically.');
+      
+      document.body.style.opacity = '0.5';
+      document.body.style.pointerEvents = 'none';
+      
+      setTimeout(async () => {
+        let attempts = 0;
+        const interval = setInterval(async () => {
+          attempts++;
+          try {
+            const check = await fetch('/settings/api/status').then(r => r.json());
+            if (check && check.settings) {
+              clearInterval(interval);
+              location.reload();
+            }
+          } catch(e) {
+            if (attempts > 15) {
+              clearInterval(interval);
+              alert(isRu ? 'Сервер перезапускается дольше обычного. Пожалуйста, перезагрузите страницу вручную через некоторое время.' : 'Server is taking longer than usual to restart. Please refresh manually later.');
+              document.body.style.opacity = '1';
+              document.body.style.pointerEvents = 'auto';
+            }
+          }
+        }, 1000);
+      }, 1500);
+    }
+  } catch (err) {
+    alert((isRu ? 'Ошибка при перезапуске: ' : 'Restart error: ') + err.message);
+  }
+}
+
+window.shutdownServer = shutdownServer;
+window.restartServer = restartServer;

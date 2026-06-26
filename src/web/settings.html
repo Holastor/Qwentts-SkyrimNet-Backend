@@ -18,6 +18,14 @@
     <button class="tab-btn" id="btn-voice_design" onclick="switchTab('voice_design')">👥 <span data-i18n="tab_voice_design">Voices Design</span></button>
   </nav>
   <div class="sidebar-footer">
+    <div class="server-controls" style="display: flex; gap: 8px; margin-bottom: 12px; width: 100%;">
+      <button onclick="shutdownServer()" class="action-btn danger" style="flex: 1; padding: 10px 8px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: bold; border-radius: 4px; box-sizing: border-box;" title="Выключить сервер">
+        ❌ <span data-i18n="btn_shutdown">Выключить</span>
+      </button>
+      <button onclick="restartServer()" class="action-btn primary" style="flex: 1; padding: 10px 8px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: bold; border-radius: 4px; box-sizing: border-box;" title="Перезагрузить сервер">
+        🔄 <span data-i18n="btn_restart_server">Перезапуск</span>
+      </button>
+    </div>
     <select id="lang-select" onchange="changeSiteLang(this.value)" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-input); color: #fff; cursor: pointer; width: 100%;">
       <option value="zh">Chinese</option>
       <option value="ru">Russian</option>
@@ -159,6 +167,29 @@
         </div>
       </div>
       <div id="import-console" class="import-console" style="display: none;"></div>
+    </div>
+
+    <div class="section" id="section-cache">
+      <h2 data-i18n="section_cache_title">Pre-encode / Cache Voices</h2>
+      <p class="section-desc" data-i18n="section_cache_desc">Pre-encode voice reference WAV files into optimized speech embeddings (SPK + RVQ) to speed up future generations. This is a CPU-heavy task and can be manually triggered.</p>
+      <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 16px;">
+        <button type="button" id="start-cache-btn" onclick="startCacheEncoding()">⚡ Кодировать голоса (Кэш)</button>
+      </div>
+
+      <!-- Cache Progress Bar Container -->
+      <div id="cache-progress-container" style="display: none; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; font-weight: 500;">
+          <span id="cache-progress-status" style="color: var(--accent);">Encoding voices...</span>
+          <span id="cache-progress-percentage" style="font-family: monospace; font-weight: bold; color: var(--accent);">0%</span>
+        </div>
+        <div style="width: 100%; height: 12px; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; position: relative; margin: 8px 0;">
+          <div id="cache-progress-bar" style="width: 0%; height: 100%; background: var(--accent); transition: width 0.3s ease;"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--text-muted); font-family: monospace;">
+          <span id="cache-progress-counts">Files: 0 / 0 remaining</span>
+          <span id="cache-progress-time">Elapsed: 0s | ETA: 0s</span>
+        </div>
+      </div>
     </div>
 
     <div class="section" id="section-manual">
