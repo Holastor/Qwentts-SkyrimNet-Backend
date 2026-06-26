@@ -98,8 +98,14 @@ _SETTINGS: Dict[str, Any] = {
 }
 
 
+from collections import deque
+_LOG_BUFFER = deque(maxlen=100)
+_log_lock = threading.Lock()
+
 def _log(message: str) -> None:
     print(f"[{BACKEND_NAME}] {message}", flush=True)
+    with _log_lock:
+        _LOG_BUFFER.append(message)
 
 
 # ---------------------------------------------------------------------------

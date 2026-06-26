@@ -375,8 +375,14 @@ document.getElementById('apply-models-btn').addEventListener('click', async () =
   if (!talkerRadio || !codecRadio) return;
   showMessage('model-message', 'Applying models, please wait...', 'info');
   try {
-    await postJson('/models/api/select', {name: talkerRadio.getAttribute('data-name'), kind: 'talker'});
-    await postJson('/models/api/select', {name: codecRadio.getAttribute('data-name'), kind: 'codec'});
+    const talkerName = talkerRadio.getAttribute('data-name');
+    const codecName = codecRadio.getAttribute('data-name');
+    
+    await postJson('/models/api/select', {
+      talker: talkerName,
+      codec: codecName
+    });
+
     const backendRadio = document.querySelector('input[name="backend"]:checked');
     if (backendRadio) {
       await postJson('/settings/api/set-backend', {backend: backendRadio.value});
@@ -411,8 +417,36 @@ document.getElementById('apply-models-btn').addEventListener('click', async () =
   }
 })();
 
+let isDownloadingModel = false;
+let modelDownloadPollInterval = null;
+
 function downloadModel(url, name) {
-  showMessage('download-message', 'Downloading ' + name + '...', 'info');
+  if (isDownloadingModel) {
+    alert("Another download is already in progress.");
+    return;
+  }
+  
+  isDownloadingModel = true;
+  toggleActionButtons(false);
+  
+  const progContainer = document.getElementById('model-download-progress-container');
+  const progBar = document.getElementById('model-download-progress-bar');
+  const progPct = document.getElementById('model-download-progress-percentage');
+  const progBytes = document.getElementById('model-download-progress-bytes');
+  const progSpeed = document.getElementById('model-download-progress-speed');
+  const progStatus = document.getElementById('model-download-progress-status');
+  
+  if (progContainer) {
+    progContainer.style.display = 'block';
+    progBar.style.width = '0%';
+    progPct.textContent = '0%';
+    progBytes.textContent = '0 MB / 0 MB';
+    progSpeed.textContent = '0.0 MB/s';
+    progStatus.textContent = 'Initializing download of ' + name + '...';
+  }
+  
+  showMessage('download-message', 'Starting download for ' + name + '...', 'info');
+  
   fetch('/models/api/download', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -420,10 +454,72 @@ function downloadModel(url, name) {
   })
   .then(r => r.json())
   .then(d => {
-    if (d.success) showMessage('download-message', 'Downloaded ' + name + '. Refresh page.', 'ok');
-    else showMessage('download-message', 'Download failed: ' + (d.error || 'unknown'), 'err');
+    if (!d.success) {
+      clearInterval(modelDownloadPollInterval);
+      isDownloadingModel = false;
+      toggleActionButtons(true);
+      if (progContainer) progContainer.style.display = 'none';
+      showMessage('download-message', 'Download failed: ' + (d.error || 'unknown'), 'err');
+    }
   })
-  .catch(e => showMessage('download-message', 'Download error: ' + e.message, 'err'));
+  .catch(e => {
+    clearInterval(modelDownloadPollInterval);
+    isDownloadingModel = false;
+    toggleActionButtons(true);
+    if (progContainer) progContainer.style.display = 'none';
+    showMessage('download-message', 'Download error: ' + e.message, 'err');
+  });
+
+  // Start polling immediately
+  modelDownloadPollInterval = setInterval(async () => {
+    try {
+      const res = await fetch('/models/api/progress').then(r => r.json());
+      if (res.running && res.name === name) {
+        const percent = res.progress >= 0 ? res.progress : 0;
+        const dl_mb = (res.downloaded_bytes / (1024*1024)).toFixed(1);
+        const total_mb = (res.total_bytes / (1024*1024)).toFixed(1);
+        
+        if (progContainer) {
+          progBar.style.width = percent + '%';
+          progPct.textContent = percent + '%';
+          progBytes.textContent = `${dl_mb} MB / ${total_mb} MB`;
+          progSpeed.textContent = `${res.speed_mb_s.toFixed(2)} MB/s`;
+          progStatus.textContent = 'Downloading ' + name + '...';
+        }
+      } else if (!res.running) {
+        clearInterval(modelDownloadPollInterval);
+        isDownloadingModel = false;
+        toggleActionButtons(true);
+        if (res.error) {
+          if (progContainer) progContainer.style.display = 'none';
+          showMessage('download-message', 'Download failed: ' + res.error, 'err');
+        } else {
+          if (progBar) progBar.style.width = '100%';
+          if (progPct) progPct.textContent = '100%';
+          if (progStatus) progStatus.textContent = 'Download completed successfully!';
+          showMessage('download-message', 'Downloaded ' + name + '. Refreshing page...', 'ok');
+          setTimeout(() => location.reload(), 2000);
+        }
+      }
+    } catch (err) {
+      console.error("Error polling download progress:", err);
+    }
+  }, 1000);
+}
+
+function toggleActionButtons(enabled) {
+  const saveBtn = document.querySelector('#settings-form button[type="submit"]');
+  const applyModelsBtn = document.getElementById('apply-models-btn');
+  const applyBackendBtn = document.querySelector('#backend-form button[type="submit"]');
+  const deleteBtns = document.querySelectorAll('.delete-model-btn');
+  const hfDownloadBtns = document.querySelectorAll('#hf-models button');
+  
+  const disabled = !enabled;
+  if (saveBtn) saveBtn.disabled = disabled;
+  if (applyModelsBtn) applyModelsBtn.disabled = disabled;
+  if (applyBackendBtn) applyBackendBtn.disabled = disabled;
+  deleteBtns.forEach(btn => btn.disabled = disabled);
+  hfDownloadBtns.forEach(btn => btn.disabled = disabled);
 }
 
 // Воспроизведение аудио с фиксацией в нижнем плеере
@@ -910,3 +1006,59 @@ function prevStep() {
 setTimeout(() => {
   if (localStorage.getItem('qwentts_tutorial_seen') !== 'true') startTutorial();
 }, 1000);
+
+async function deleteModel(name) {
+  const isRu = (currentLang === 'ru');
+  const confirmMsg = isRu 
+    ? `Вы уверены, что хотите удалить файл модели "${name}"?`
+    : `Are you sure you want to delete the model file "${name}"?`;
+  
+  if (!confirm(confirmMsg)) return;
+  
+  try {
+    const res = await postJson('/models/api/delete', { name });
+    if (res.success) {
+      alert(isRu ? `Модель "${name}" успешно удалена.` : `Model "${name}" successfully deleted.`);
+      location.reload();
+    } else {
+      alert((isRu ? `Ошибка при удалении модели: ` : `Failed to delete model: `) + (res.error || 'unknown'));
+    }
+  } catch (err) {
+    alert((isRu ? `Ошибка при удалении: ` : `Error deleting: `) + err.message);
+  }
+}
+
+async function refreshBackendLogs() {
+  try {
+    const res = await fetch('/settings/api/logs').then(r => r.json());
+    if (res.success && Array.isArray(res.logs)) {
+      const consoleEl = document.getElementById('backend-logs-console');
+      if (consoleEl) {
+        const isAtBottom = consoleEl.scrollHeight - consoleEl.clientHeight <= consoleEl.scrollTop + 50;
+        consoleEl.textContent = res.logs.join('\n');
+        if (isAtBottom || consoleEl.scrollTop === 0) {
+          consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Failed to fetch backend logs:", err);
+  }
+}
+
+// Poll logs every 3 seconds if Settings tab is active
+setInterval(() => {
+  const tabSettings = document.getElementById('tab-settings');
+  if (tabSettings && tabSettings.classList.contains('active-content')) {
+    refreshBackendLogs();
+  }
+}, 3000);
+
+// Initial trigger on load
+setTimeout(() => {
+  refreshBackendLogs();
+}, 500);
+
+// Explicitly export functions to the window object to ensure they are available in global scope for HTML onclick handlers
+window.deleteModel = deleteModel;
+window.refreshBackendLogs = refreshBackendLogs;

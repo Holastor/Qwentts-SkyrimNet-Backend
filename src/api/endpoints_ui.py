@@ -41,18 +41,40 @@ def _require_settings_api(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Settings API is only available from localhost")
 
 
-def _get_local_models() -> Dict[str, list[Dict[str, str]]]:
-    """Scan models/qwen/ for GGUF files, return {talker: [...], codec: [...]}."""
+import time
+
+_MODEL_EXPECTED_SIZES = {
+    "qwen-talker-0.6b-base-Q4_K_M.gguf": 628905056,
+    "qwen-talker-1.7b-base-Q4_K_M.gguf": 1219245248,
+    "qwen-talker-1.7b-voicedesign-Q4_K_M.gguf": 1182630816,
+    "qwen-tokenizer-12hz-F32.gguf": 647263104,
+}
+
+
+def _get_local_models() -> Dict[str, list[Dict[str, Any]]]:
+    """Scan models/qwen/ for GGUF files, return {talker: [...], codec: [...]} with size verification."""
     models_dir = PROJECT_ROOT / "models" / "qwen"
-    result: Dict[str, list[Dict[str, str]]] = {"talker": [], "codec": []}
+    result: Dict[str, list[Dict[str, Any]]] = {"talker": [], "codec": []}
     if not models_dir.exists():
         return result
     for f in sorted(models_dir.iterdir()):
         if f.suffix.lower() != ".gguf" or not f.is_file():
             continue
         name = f.name
-        size_gb = f.stat().st_size / (1024**3)
-        entry = {"name": name, "path": str(f), "size_gb": round(size_gb, 2)}
+        size_bytes = f.stat().st_size
+        size_gb = size_bytes / (1024**3)
+        expected = _MODEL_EXPECTED_SIZES.get(name)
+        mismatch = (expected is not None and expected > 0 and size_bytes != expected)
+        
+        entry = {
+            "name": name,
+            "path": str(f),
+            "size_gb": round(size_gb, 2),
+            "size_bytes": size_bytes,
+            "expected_size_bytes": expected,
+            "size_mismatch": mismatch
+        }
+        
         if "talker" in name.lower():
             result["talker"].append(entry)
         elif "tokenizer" in name.lower() or "codec" in name.lower():
@@ -64,7 +86,7 @@ def _get_local_models() -> Dict[str, list[Dict[str, str]]]:
 
 async def _fetch_hf_model_list() -> list[Dict[str, Any]]:
     import urllib.request
-    api_url = "https://huggingface.co/api/models/Serveurperso/Qwen3-TTS-GGUF"
+    api_url = "https://huggingface.co/api/models/Serveurperso/Qwen3-TTS-GGUF?blobs=true"
     try:
         req = urllib.request.Request(api_url, headers={"User-Agent": "qwentts-adapter/1.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -78,34 +100,57 @@ async def _fetch_hf_model_list() -> list[Dict[str, Any]]:
     for sib in siblings:
         path = sib.get("rfilename", "")
         if path.endswith(".gguf"):
-            name_lower = path.split("/")[-1].lower()
+            name = path.split("/")[-1]
+            size_bytes = sib.get("size", 0)
+            # Dynamically update/cache expected size from HF if it is non-zero
+            if size_bytes > 0:
+                _MODEL_EXPECTED_SIZES[name] = size_bytes
+            name_lower = name.lower()
             if "customvoice" not in name_lower:
                 gguf_files.append({
-                    "name": path.split("/")[-1],
+                    "name": name,
                     "path": path,
-                    "size_bytes": sib.get("size", 0),
+                    "size_bytes": size_bytes,
                     "download_url": f"https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF/resolve/main/{path}",
                 })
     return gguf_files
 
 
-_DOWNLOAD_PROGRESS: Dict[str, Any] = {"running": False, "name": "", "progress": 0, "error": None}
+_DOWNLOAD_PROGRESS: Dict[str, Any] = {
+    "running": False,
+    "name": "",
+    "progress": 0,
+    "error": None,
+    "downloaded_bytes": 0,
+    "total_bytes": 0,
+    "speed_mb_s": 0.0
+}
 
 
-async def _download_model_async(download_url: str, filename: str, target_dir: Path) -> bool:
+def _download_model_thread_func(download_url: str, filename: str, target_dir: Path) -> None:
     import urllib.request
     global _DOWNLOAD_PROGRESS
 
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / filename
-    _DOWNLOAD_PROGRESS = {"running": True, "name": filename, "progress": 0, "error": None}
+    _DOWNLOAD_PROGRESS = {
+        "running": True,
+        "name": filename,
+        "progress": 0,
+        "error": None,
+        "downloaded_bytes": 0,
+        "total_bytes": 0,
+        "speed_mb_s": 0.0
+    }
 
     try:
         req = urllib.request.Request(download_url, headers={"User-Agent": "qwentts-adapter/1.0"})
         with urllib.request.urlopen(req, timeout=3600) as resp:
             total = int(resp.headers.get("Content-Length", 0))
+            _DOWNLOAD_PROGRESS["total_bytes"] = total
             downloaded = 0
-            chunk_size = 1024 * 1024
+            chunk_size = 512 * 1024 # 512 KB chunks for smoother progress updates
+            start_time = time.time()
             with open(str(target_path), "wb") as f:
                 while True:
                     chunk = resp.read(chunk_size)
@@ -113,6 +158,11 @@ async def _download_model_async(download_url: str, filename: str, target_dir: Pa
                         break
                     f.write(chunk)
                     downloaded += len(chunk)
+                    elapsed = time.time() - start_time
+                    speed = (downloaded / (1024 * 1024)) / elapsed if elapsed > 0 else 0
+                    
+                    _DOWNLOAD_PROGRESS["downloaded_bytes"] = downloaded
+                    _DOWNLOAD_PROGRESS["speed_mb_s"] = round(speed, 2)
                     if total > 0:
                         _DOWNLOAD_PROGRESS["progress"] = int(downloaded * 100 / total)
                     else:
@@ -120,13 +170,11 @@ async def _download_model_async(download_url: str, filename: str, target_dir: Pa
 
         _DOWNLOAD_PROGRESS["running"] = False
         _DOWNLOAD_PROGRESS["progress"] = 100
-        return True
     except Exception as exc:
         _DOWNLOAD_PROGRESS["running"] = False
         _DOWNLOAD_PROGRESS["error"] = str(exc)
         if target_path.exists():
             target_path.unlink(missing_ok=True)
-        return False
 
 
 # ---------------------------------------------------------------------------
@@ -263,29 +311,57 @@ async def settings_page(request: Request) -> HTMLResponse:
     for m in local.get("talker", []):
         is_active = m["name"] == active_talker
         checked = "checked" if is_active else ""
+        mismatch_style = ""
+        mismatch_msg = ""
+        if m.get("size_mismatch"):
+            exp_mb = round(m["expected_size_bytes"] / (1024*1024), 1)
+            act_mb = round(m["size_bytes"] / (1024*1024), 1)
+            mismatch_style = "border-color: var(--danger); background: rgba(242, 139, 130, 0.05);"
+            mismatch_msg = f'<span style="color: var(--danger); font-size: 12px; margin-top: 4px; display: block;">File size mismatch: {act_mb} MB / {exp_mb} MB (corrupt or truncated).</span>'
+        
         talker_html += f"""
-        <label class="model-item">
-          <input type="radio" name="talker_model" value="{m['path']}" data-name="{m['name']}" {checked}>
-          <span class="model-check">
-            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-          </span>
-          <span class="model-name">{m['name']}</span>
-          <span class="model-size">{m['size_gb']} GB</span>
-        </label>"""
+        <div class="model-item-container" style="display: flex; align-items: center; gap: 8px; width: 100%;">
+          <label class="model-item" style="flex: 1; {mismatch_style}">
+            <input type="radio" name="talker_model" value="{m['path']}" data-name="{m['name']}" {checked}>
+            <span class="model-check">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+            </span>
+            <div style="display: flex; flex-direction: column; flex: 1;">
+              <span class="model-name" style="margin: 0;">{m['name']}</span>
+              {mismatch_msg}
+            </div>
+            <span class="model-size">{m['size_gb']} GB</span>
+          </label>
+          <button type="button" class="action-btn danger delete-model-btn" onclick="deleteModel('{m['name']}')" title="Delete model file" style="padding: 10px 14px; flex-shrink: 0; font-size: 16px;">🗑️</button>
+        </div>"""
 
     codec_html = ""
     for m in local.get("codec", []):
         is_active = m["name"] == active_codec
         checked = "checked" if is_active else ""
+        mismatch_style = ""
+        mismatch_msg = ""
+        if m.get("size_mismatch"):
+            exp_mb = round(m["expected_size_bytes"] / (1024*1024), 1)
+            act_mb = round(m["size_bytes"] / (1024*1024), 1)
+            mismatch_style = "border-color: var(--danger); background: rgba(242, 139, 130, 0.05);"
+            mismatch_msg = f'<span style="color: var(--danger); font-size: 12px; margin-top: 4px; display: block;">File size mismatch: {act_mb} MB / {exp_mb} MB (corrupt or truncated).</span>'
+        
         codec_html += f"""
-        <label class="model-item {'active' if is_active else ''}">
-          <input type="radio" name="codec_model" value="{m['path']}" data-name="{m['name']}" {checked}>
-          <span class="model-check">
-            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-          </span>
-          <span class="model-name">{m['name']}</span>
-          <span class="model-size">{m['size_gb']} GB</span>
-        </label>"""
+        <div class="model-item-container" style="display: flex; align-items: center; gap: 8px; width: 100%;">
+          <label class="model-item {'active' if is_active else ''}" style="flex: 1; {mismatch_style}">
+            <input type="radio" name="codec_model" value="{m['path']}" data-name="{m['name']}" {checked}>
+            <span class="model-check">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+            </span>
+            <div style="display: flex; flex-direction: column; flex: 1;">
+              <span class="model-name" style="margin: 0;">{m['name']}</span>
+              {mismatch_msg}
+            </div>
+            <span class="model-size">{m['size_gb']} GB</span>
+          </label>
+          <button type="button" class="action-btn danger delete-model-btn" onclick="deleteModel('{m['name']}')" title="Delete model file" style="padding: 10px 14px; flex-shrink: 0; font-size: 16px;">🗑️</button>
+        </div>"""
 
     if not talker_html:
         talker_html = '<p class="empty-message">No talker models found in <code>models/qwen/</code>.</p>'
@@ -316,7 +392,11 @@ async def settings_css():
     css_path = PROJECT_ROOT / "src" / "web" / "settings.css"
     if not css_path.exists():
         raise HTTPException(status_code=404, detail="CSS file not found")
-    return FileResponse(str(css_path), media_type="text/css")
+    return FileResponse(
+        str(css_path), 
+        media_type="text/css",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"}
+    )
 
 
 @router.get("/settings.js")
@@ -324,7 +404,11 @@ async def settings_js():
     js_path = PROJECT_ROOT / "src" / "web" / "settings.js"
     if not js_path.exists():
         raise HTTPException(status_code=404, detail="JS file not found")
-    return FileResponse(str(js_path), media_type="application/javascript")
+    return FileResponse(
+        str(js_path), 
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"}
+    )
 
 
 @router.get("/settings/api/status")
@@ -424,17 +508,59 @@ async def models_api_download(request: Request) -> Dict[str, Any]:
     if not url or not name:
         raise HTTPException(status_code=400, detail="url and name required")
 
+    global _DOWNLOAD_PROGRESS
+    if _DOWNLOAD_PROGRESS.get("running"):
+        return {"success": False, "error": "Another download is already in progress"}
+
     target_dir = PROJECT_ROOT / "models" / "qwen"
-    success = await _download_model_async(url, name, target_dir)
-    if success:
-        return {"success": True, "name": name}
-    err = _DOWNLOAD_PROGRESS.get("error", "download failed")
-    return {"success": False, "error": err}
+    
+    # Start download in a background thread to prevent blocking the ASGI event loop
+    thread = threading.Thread(
+        target=_download_model_thread_func,
+        args=(url, name, target_dir),
+        daemon=True
+    )
+    thread.start()
+    
+    return {"success": True, "name": name}
 
 
 @router.get("/models/api/progress")
 async def models_api_progress(request: Request) -> Dict[str, Any]:
     return dict(_DOWNLOAD_PROGRESS)
+
+
+class ModelDeleteRequest(BaseModel):
+    name: str
+
+
+@router.post("/models/api/delete")
+async def models_api_delete(request: Request, payload: ModelDeleteRequest) -> Dict[str, Any]:
+    _require_settings_api(request)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Model name required")
+    if "/" in name or "\\" in name or ".." in name:
+        raise HTTPException(status_code=400, detail="Invalid model name")
+    
+    model_path = PROJECT_ROOT / "models" / "qwen" / name
+    if model_path.exists():
+        try:
+            model_path.unlink()
+            _log(f"deleted model file: {name}")
+            return {"success": True}
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to delete model: {exc}")
+    return {"success": True, "message": "File not found"}
+
+
+@router.get("/settings/api/logs")
+async def settings_api_logs(request: Request) -> Dict[str, Any]:
+    _require_settings_api(request)
+    from src.config import _LOG_BUFFER, _log_lock
+    with _log_lock:
+        logs = list(_LOG_BUFFER)
+    return {"success": True, "logs": logs}
 
 
 @router.post("/models/api/select")
@@ -444,21 +570,38 @@ async def models_api_select(request: Request) -> Dict[str, Any]:
         data = await request.json()
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"invalid JSON: {exc}")
-    name = (data or {}).get("name", "")
-    kind = (data or {}).get("kind", "")
-    if not name or kind not in ("talker", "codec"):
-        raise HTTPException(status_code=400, detail="name and kind (talker/codec) required")
 
-    model_path = str(PROJECT_ROOT / "models" / "qwen" / name)
-    if not Path(model_path).exists():
-        raise HTTPException(status_code=404, detail=f"model file not found: {model_path}")
+    talker = (data or {}).get("talker", "")
+    codec = (data or {}).get("codec", "")
 
-    if kind == "talker":
-        _SETTINGS["talker_path"] = model_path
-        _SETTINGS["active_talker_name"] = name
-    else:
-        _SETTINGS["codec_path"] = model_path
-        _SETTINGS["active_codec_name"] = name
+    # For backward compatibility with old single select format
+    if not talker and not codec:
+        name = (data or {}).get("name", "")
+        kind = (data or {}).get("kind", "")
+        if name and kind in ("talker", "codec"):
+            if kind == "talker":
+                talker = name
+            else:
+                codec = name
+
+    if not talker and not codec:
+        raise HTTPException(status_code=400, detail="talker and/or codec model names required")
+
+    target_dir = PROJECT_ROOT / "models" / "qwen"
+
+    if talker:
+        talker_path = str(target_dir / talker)
+        if not Path(talker_path).exists():
+            raise HTTPException(status_code=404, detail=f"talker model file not found: {talker_path}")
+        _SETTINGS["talker_path"] = talker_path
+        _SETTINGS["active_talker_name"] = talker
+
+    if codec:
+        codec_path = str(target_dir / codec)
+        if not Path(codec_path).exists():
+            raise HTTPException(status_code=404, detail=f"codec model file not found: {codec_path}")
+        _SETTINGS["codec_path"] = codec_path
+        _SETTINGS["active_codec_name"] = codec
 
     _save_settings()
     _apply_settings()
@@ -468,7 +611,7 @@ async def models_api_select(request: Request) -> Dict[str, Any]:
     if not reload_res["success"]:
         raise HTTPException(status_code=500, detail=f"Model reload failed: {reload_res.get('error')}")
 
-    return {"success": True, "kind": kind, "name": name, "path": model_path}
+    return {"success": True}
 
 
 @router.get("/voices/api/list")

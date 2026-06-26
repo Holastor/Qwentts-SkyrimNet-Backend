@@ -531,3 +531,6 @@ button.secondary:hover {
 
 .tab-content { display: none; }
 .tab-content.active-content { display: block; }
+
+/* Консоль логов инициализации */
+.logs-console { background: #0a0a0a; color: #a6e22e; font-family: monospace; padding: 14px; border-radius: 6px; height: 200px; overflow-y: auto; font-size: 13px; border: 1px solid var(--border-color); margin-top: 12px; white-space: pre-wrap; }
