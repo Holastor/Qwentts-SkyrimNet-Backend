@@ -204,7 +204,9 @@ p.section-desc {
   width: 44px;
   height: 24px;
   max-width: 44px;
+  min-width: 44px;
   flex: none;
+  display: block;
 }
 
 .field.bool input[type="checkbox"] {
@@ -215,6 +217,7 @@ p.section-desc {
 }
 
 .toggle-slider {
+  width: 100%;
   position: absolute;
   cursor: pointer;
   inset: 0;
@@ -534,3 +537,24 @@ button.secondary:hover {
 
 /* Консоль логов инициализации */
 .logs-console { background: #0a0a0a; color: #a6e22e; font-family: monospace; padding: 14px; border-radius: 6px; height: 200px; overflow-y: auto; font-size: 13px; border: 1px solid var(--border-color); margin-top: 12px; white-space: pre-wrap; }
+
+/* Разделение удаленных моделей */
+.remote-model-group {
+  margin-bottom: 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+}
+.remote-model-group h4 {
+  margin: 0 0 6px 0;
+  font-size: 14px;
+  color: var(--accent);
+  font-weight: 600;
+}
+.remote-model-group p.group-desc {
+  margin: 0 0 14px 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}

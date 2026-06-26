@@ -55,6 +55,7 @@ const i18n = {
     btn_play: "▶ Слушать",
     btn_save: "Сохранить",
     btn_delete: "Удалить",
+    btn_synthesize: "⚡ Синтезировать",
     voice_key_tip: "Уникальный ID спикера, например malebrute",
     voice_audio_tip: "Путь к файлу WAV относительно корня проекта",
     voice_text_tip: "Точный текст, произнесенный в аудиофайле.",
@@ -127,6 +128,7 @@ const i18n = {
     btn_play: "▶ Play",
     btn_save: "Save",
     btn_delete: "Delete",
+    btn_synthesize: "⚡ Synthesize",
     voice_key_tip: "Unique speaker ID, e.g. malebrute",
     voice_audio_tip: "Path to WAV file relative to the project root",
     voice_text_tip: "Exact text spoken in the audio file.",
@@ -199,6 +201,7 @@ const i18n = {
     btn_play: "▶ 播放",
     btn_save: "保存",
     btn_delete: "删除",
+    btn_synthesize: "⚡ 合成",
     voice_key_tip: "唯一的说话人 ID，例如：malebrute",
     voice_audio_tip: "WAV 文件相对于项目根目录的路径",
     voice_text_tip: "音频文件中所说的精确文本。",
@@ -269,6 +272,16 @@ function applyTranslations() {
       previewTextInput.value = isRussian 
         ? "Привет! Это проверка синтеза речи в режиме дизайна голоса." 
         : "Hello! This is a speech synthesis test in voice design mode.";
+    }
+  }
+  const customPreviewTextInput = document.getElementById('custom-preview-text');
+  if (customPreviewTextInput) {
+    const isRussian = currentLang === 'ru';
+    if (customPreviewTextInput.value === "Привет! Это проверка синтеза речи для пользовательского голоса." || 
+        customPreviewTextInput.value === "Hello! This is a speech synthesis test for custom voices.") {
+      customPreviewTextInput.value = isRussian 
+        ? "Привет! Это проверка синтеза речи для пользовательского голоса." 
+        : "Hello! This is a speech synthesis test for custom voices.";
     }
   }
   if (typeof tutorialSteps !== 'undefined') {
@@ -401,12 +414,94 @@ document.getElementById('apply-models-btn').addEventListener('click', async () =
     const div = document.getElementById('hf-models');
     let html = '';
     if (d.remote && d.remote.length) {
+      const groups = [
+        {
+          id: 'talker_1_7b_voicedesign',
+          title_en: 'Talker LM (1.7B) — Voice Design',
+          title_ru: 'Языковая модель Talker LM (1.7B) — Voice Design',
+          desc_en: 'Supports voice generation based on natural text instructions (e.g. "whispering young female").',
+          desc_ru: 'Поддерживает генерацию голоса на основе текстовых описаний (например, "whispering young female").',
+          models: []
+        },
+        {
+          id: 'talker_1_7b_base',
+          title_en: 'Talker LM (1.7B) — Base',
+          title_ru: 'Языковая модель Talker LM (1.7B) — Base',
+          desc_en: 'Base model for standard voice generation with custom speaker WAV files.',
+          desc_ru: 'Базовая модель для генерации по эталонным WAV-файлам.',
+          models: []
+        },
+        {
+          id: 'talker_0_6b_base',
+          title_en: 'Talker LM (0.6B) — Base',
+          title_ru: 'Языковая модель Talker LM (0.6B) — Base',
+          desc_en: 'Lightweight model. Note: Incompatible with Vulkan compute on AMD GPUs.',
+          desc_ru: 'Облегченная модель. Внимание: Несовместима с вычислениями Vulkan на видеокартах AMD.',
+          models: []
+        },
+        {
+          id: 'codec_tokenizer',
+          title_en: 'Audio Codec / Tokenizer (12Hz)',
+          title_ru: 'Аудиокодек / Токенизатор (12Hz)',
+          desc_en: 'Converts generated speech tokens back into clean waveform audio.',
+          desc_ru: 'Преобразует сгенерированные коды речи обратно в аудио волну (WAV).',
+          models: []
+        },
+        {
+          id: 'other',
+          title_en: 'Other Models',
+          title_ru: 'Другие модели',
+          desc_en: 'Other files found on HuggingFace.',
+          desc_ru: 'Прочие файлы, найденные на HuggingFace.',
+          models: []
+        }
+      ];
+
       d.remote.forEach(m => {
-        const sizeStr = m.size_bytes ? ' (' + (m.size_bytes / 1e9).toFixed(1) + ' GB)' : '';
-        html += `<div style="display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid var(--border-color);">
-          <span style="font-family:monospace; font-size:13px;">${m.name}${sizeStr}</span>
-          <button onclick="downloadModel('${m.download_url}','${m.name}')" style="padding:4px 12px; font-size:12px;">Download</button>
-        </div>`;
+        const nameLower = m.name.toLowerCase();
+        if (nameLower.includes('1.7b') && nameLower.includes('voicedesign')) {
+          groups[0].models.push(m);
+        } else if (nameLower.includes('1.7b') && nameLower.includes('base')) {
+          groups[1].models.push(m);
+        } else if (nameLower.includes('0.6b')) {
+          groups[2].models.push(m);
+        } else if (nameLower.includes('tokenizer') || nameLower.includes('codec')) {
+          groups[3].models.push(m);
+        } else {
+          groups[4].models.push(m);
+        }
+      });
+
+      groups.forEach(g => {
+        if (g.models.length === 0) return;
+        const title = currentLang === 'ru' ? g.title_ru : g.title_en;
+        const desc = currentLang === 'ru' ? g.desc_ru : g.desc_en;
+
+        html += `
+        <div class="remote-model-group">
+          <h4>${title}</h4>
+          <p class="group-desc">${desc}</p>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+        `;
+
+        g.models.forEach(m => {
+          html += `
+            <div class="model-item-container" style="display: flex; align-items: center; gap: 8px; width: 100%;">
+              <div class="model-item" style="flex: 1; padding: 12px 16px; cursor: default; background: rgba(255,255,255,0.02); height: 44px; display: flex; align-items: center;">
+                <div style="display: flex; flex-direction: column; flex: 1; justify-content: center;">
+                  <span class="model-name" style="margin: 0; font-size: 13px;">${m.name}</span>
+                </div>
+                <span class="model-size" style="flex-shrink: 0; margin-right: 4px;">${(m.size_bytes / 1e9).toFixed(1)} GB</span>
+              </div>
+              <button onclick="downloadModel('${m.download_url}','${m.name}')" style="padding: 0 16px; flex-shrink: 0; font-size: 12px; height: 44px; display: flex; align-items: center; justify-content: center; font-weight: 600;">Download</button>
+            </div>
+          `;
+        });
+
+        html += `
+          </div>
+        </div>
+        `;
       });
     } else {
       html = '<p style="color:var(--text-muted);font-size:14px;">No remote models found.</p>';
@@ -550,6 +645,77 @@ function playAudio(path) {
   }
 }
 
+async function playCustomVoiceSynthesis(key) {
+  const dict = i18n[currentLang] || i18n.en;
+  
+  try {
+    const status = await fetch('/settings/api/status').then(r => r.json());
+    const talkerPath = (status.talker_path || '').toLowerCase();
+    if (talkerPath.includes('voicedesign')) {
+      const errMsgs = {
+        ru: "Ошибка: Для синтеза пользовательского голоса должна быть выбрана базовая модель talker (например, qwen-talker-1.7b-base-Q4_K_M.gguf), а не voicedesign!",
+        en: "Error: A base talker model must be selected (e.g. qwen-talker-1.7b-base-Q4_K_M.gguf) to synthesize custom voices, not a voicedesign model!"
+      };
+      alert(errMsgs[currentLang] || errMsgs.en);
+      return;
+    }
+  } catch (err) {
+    console.error("Failed to check backend status:", err);
+  }
+
+  const previewInput = document.getElementById('custom-preview-text');
+  const previewText = previewInput ? previewInput.value.trim() : "";
+  if (!previewText) {
+    alert(currentLang === 'ru' ? "Пожалуйста, введите текст для теста!" : "Please enter a test phrase!");
+    return;
+  }
+
+  const activeLang = (document.getElementById('lang') ? document.getElementById('lang').value.trim() : 'russian');
+
+  const playerBar = document.getElementById('footer-audio-player');
+  const pathEl = document.getElementById('player-file-path');
+  const audioEl = document.getElementById('player-audio-element');
+
+  if (pathEl) pathEl.textContent = `[CustomVoice Generation] ${key}`;
+  if (playerBar) playerBar.style.display = 'flex';
+
+  try {
+    const response = await fetch('/tts_to_audio/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: previewText,
+        speaker_wav: key,
+        language: activeLang
+      })
+    });
+    
+    if (!response.ok) {
+      const errData = await response.json();
+      throw new Error(errData.detail || 'Synthesis failed');
+    }
+
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    
+    if (audioEl) {
+      audioEl.src = blobUrl;
+      audioEl.play().catch(err => {
+        alert(dict.alert_play_err || "Could not play audio.");
+      });
+      currentAudio = audioEl;
+    } else {
+      if (currentAudio) currentAudio.pause();
+      currentAudio = new Audio(blobUrl);
+      currentAudio.play().catch(err => {
+        alert(dict.alert_play_err || "Could not play audio.");
+      });
+    }
+  } catch (err) {
+    alert((currentLang === 'ru' ? "Ошибка генерации: " : "Generation error: ") + err.message);
+  }
+}
+
 // Загрузка голосов
 async function loadVoices() {
   try {
@@ -573,7 +739,8 @@ async function loadVoices() {
             <td><textarea id="text-${key}">${v.ref_text || ''}</textarea></td>
             <td>
               <div class="actions-cell">
-                <button class="action-btn play" onclick="playAudio('${safeAudioPath}')">${dict.btn_play}</button>
+                <button class="action-btn play" onclick="playAudio('${safeAudioPath}')" title="Play original reference WAV">${dict.btn_play}</button>
+                <button class="action-btn primary" onclick="playCustomVoiceSynthesis('${key}')">${dict.btn_synthesize || '⚡ Synthesize'}</button>
                 <button class="action-btn primary" onclick="saveVoice('${key}')">${dict.btn_save}</button>
                 <button class="action-btn danger" onclick="deleteVoice('${key}')">${dict.btn_delete}</button>
               </div>
@@ -1028,37 +1195,5 @@ async function deleteModel(name) {
   }
 }
 
-async function refreshBackendLogs() {
-  try {
-    const res = await fetch('/settings/api/logs').then(r => r.json());
-    if (res.success && Array.isArray(res.logs)) {
-      const consoleEl = document.getElementById('backend-logs-console');
-      if (consoleEl) {
-        const isAtBottom = consoleEl.scrollHeight - consoleEl.clientHeight <= consoleEl.scrollTop + 50;
-        consoleEl.textContent = res.logs.join('\n');
-        if (isAtBottom || consoleEl.scrollTop === 0) {
-          consoleEl.scrollTop = consoleEl.scrollHeight;
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Failed to fetch backend logs:", err);
-  }
-}
-
-// Poll logs every 3 seconds if Settings tab is active
-setInterval(() => {
-  const tabSettings = document.getElementById('tab-settings');
-  if (tabSettings && tabSettings.classList.contains('active-content')) {
-    refreshBackendLogs();
-  }
-}, 3000);
-
-// Initial trigger on load
-setTimeout(() => {
-  refreshBackendLogs();
-}, 500);
-
 // Explicitly export functions to the window object to ensure they are available in global scope for HTML onclick handlers
 window.deleteModel = deleteModel;
-window.refreshBackendLogs = refreshBackendLogs;

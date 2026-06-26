@@ -107,6 +107,12 @@ async def _fetch_hf_model_list() -> list[Dict[str, Any]]:
                 _MODEL_EXPECTED_SIZES[name] = size_bytes
             name_lower = name.lower()
             if "customvoice" not in name_lower:
+                if name_lower in (
+                    "qwen-tokenizer-12hz-q4_k_m.gguf",
+                    "qwen-tokenizer-12hz-q8_0.gguf",
+                    "qwen-tokenizer-12hz-bf16.gguf"
+                ):
+                    continue
                 gguf_files.append({
                     "name": name,
                     "path": path,
@@ -273,10 +279,10 @@ async def settings_page(request: Request) -> HTMLResponse:
             <span data-i18n="field_label_{fid}">{label}</span>
             <span class="tooltip-icon" data-i18n-tip="field_hint_{fid}" data-tip="{hint}">ⓘ</span>
           </label>
-          <div class="field-input-wrap">
+          <label class="field-input-wrap" style="cursor: pointer;">
             <input type="checkbox" id="{fid}" name="{fid}" {checked}>
             <span class="toggle-slider"></span>
-          </div>
+          </label>
         </div>"""
 
     sub_fields = [

@@ -112,17 +112,7 @@
       </div>
     </div>
 
-    <!-- Backend Logs Terminal Console -->
-    <div class="section" id="section-logs">
-      <h2 data-i18n="section_logs_title">Backend Server Logs</h2>
-      <p class="section-desc" data-i18n="section_logs_desc">Real-time status and logs from the Python adapter server and GGML engine.</p>
-      <div class="logs-console-wrap">
-        <div id="backend-logs-console" class="logs-console">Loading server logs...</div>
-      </div>
-      <div style="display: flex; gap: 8px; margin-top: 12px;">
-        <button type="button" class="action-btn" onclick="refreshBackendLogs()" data-i18n="btn_refresh_logs">Refresh Logs</button>
-      </div>
-    </div>
+
   </div>
 
   <div id="tab-voices" class="tab-content">
@@ -193,18 +183,24 @@
 
     <div class="section">
       <h2 data-i18n="registered_voices_title">Registered Voices database</h2>
-      <div style="display: flex; gap: 16px; align-items: center; margin: 16px 0;">
-        <input type="text" id="voice-search" data-i18n-placeholder="search_placeholder" placeholder="Search voices..." oninput="filterVoices()" style="flex: 1; padding: 10px 14px; background: var(--bg-input); border:1px solid var(--border-color); border-radius:6px; color:#fff;">
-        <button class="refresh-btn" onclick="loadVoices()" style="margin: 0;"><span data-i18n="btn_reload">↻ Reload</span></button>
+      <div style="display: flex; flex-direction: column; gap: 12px; margin: 16px 0;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 14px; color: var(--text-muted); font-weight: 500;" data-i18n="label_preview_text">Текст для прослушивания:</span>
+          <input type="text" id="custom-preview-text" value="Привет! Это проверка синтеза речи для пользовательского голоса." style="flex: 1; padding: 10px 14px; background: var(--bg-input); border:1px solid var(--border-color); border-radius:6px; color:#fff;">
+        </div>
+        <div style="display: flex; gap: 16px; align-items: center;">
+          <input type="text" id="voice-search" data-i18n-placeholder="search_placeholder" placeholder="Search voices..." oninput="filterVoices()" style="flex: 1; padding: 10px 14px; background: var(--bg-input); border:1px solid var(--border-color); border-radius:6px; color:#fff;">
+          <button class="refresh-btn" onclick="loadVoices()" style="margin: 0;"><span data-i18n="btn_reload">↻ Reload</span></button>
+        </div>
       </div>
       <div class="voice-table-wrap">
         <table class="voice-table">
           <thead>
             <tr>
-              <th style="width: 20%;" data-i18n="th_speaker_key">Speaker Key</th>
-              <th style="width: 30%;" data-i18n="th_wav_path">Ref WAV Path</th>
+              <th style="width: 15%;" data-i18n="th_speaker_key">Speaker Key</th>
+              <th style="width: 25%;" data-i18n="th_wav_path">Ref WAV Path</th>
               <th style="width: 35%;" data-i18n="th_transcript">Ref Transcript</th>
-              <th style="width: 15%;" data-i18n="th_actions">Actions</th>
+              <th style="width: 25%;" data-i18n="th_actions">Actions</th>
             </tr>
           </thead>
           <tbody id="voice-table-body">
@@ -328,6 +324,6 @@
   </div>
 </div>
 
-<script src="/settings.js?v=1.2.3"></script>
+<script src="/settings.js?v=1.2.4"></script>
 </body>
 </html>

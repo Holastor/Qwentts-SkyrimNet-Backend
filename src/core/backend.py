@@ -40,6 +40,19 @@ class PersistentQwenTTSBackend:
         if not codec_path.exists():
             raise RuntimeError(f"codec GGUF not found: {codec_path}")
 
+        is_0_6b = "0.6b" in talker_path.name.lower() or talker_path.stat().st_size < 800 * 1024 * 1024
+        backend_env = os.environ.get("GGML_BACKEND", "CPU")
+        if backend_env == "Vulkan0" and is_0_6b:
+            raise RuntimeError("Невозможно использовать 0.6B на Vulkan (драйверы AMD вызывают сбой математики трансформера). Пожалуйста, используйте CPU.")
+
+        if backend_env == "CPU":
+            if use_fa:
+                _log("WARNING: GGML_BACKEND is CPU. Forcing use_fa to False to avoid noise/NaNs on CPU.")
+                use_fa = False
+
+        self.use_fa      = use_fa
+        self.clamp_fp16  = clamp_fp16
+
         iparams = QtInitParams()
         qt_init_default_params(ctypes.byref(iparams))
         iparams.abi_version  = ABI_VERSION
@@ -120,7 +133,14 @@ class PersistentQwenTTSBackend:
         params.top_k                 = config.TOP_K
         params.top_p                 = config.TOP_P
         params.repetition_penalty    = config.REPETITION_PENALTY
-        params.subtalker_do_sample   = config.SUB_DO_SAMPLE
+        
+        # Force subtalker_do_sample to True since subtalker_do_sample=False is buggy/unsupported in qwentts.cpp, returning all zeros
+        sub_do_sample = config.SUB_DO_SAMPLE
+        if not sub_do_sample:
+            _log("WARNING: subtalker_do_sample is False. Forcing to True to prevent empty codes/noise.")
+            sub_do_sample = True
+        params.subtalker_do_sample   = sub_do_sample
+        
         params.subtalker_temperature = config.SUB_TEMPERATURE
         params.subtalker_top_k       = config.SUB_TOP_K
         params.subtalker_top_p       = config.SUB_TOP_P
@@ -179,8 +199,8 @@ class PersistentQwenTTSBackend:
         _log(f"max_new_tokens: {config.MAX_NEW_TOKENS}")
         _log(f"seed: {config.SEED}")
         _log(f"lang: {params.lang.decode()}")
-        _log(f"use_fa: {config.USE_FA}")
-        _log(f"clamp_fp16: {config.CLAMP_FP16}")
+        _log(f"use_fa: {self.use_fa}")
+        _log(f"clamp_fp16: {self.clamp_fp16}")
 
         _log("qwentts_persistent inference waiting for lock")
         started = time.perf_counter()
